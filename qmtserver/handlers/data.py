@@ -16,16 +16,19 @@ from blacksheep import (
     post,
 )
 
+from qmtserver.core.constants import EPOCH
+
 
 @dataclass
 class MarketDataRequest:
     start: str
     end: str
-    count: int=-1
-    dividend_type: str = 'none'
-    period: str = '1d'
-    fill_data: bool=True
+    count: int = -1
+    dividend_type: str = "none"
+    period: str = "1d"
+    fill_data: bool = True
     stocks: Optional[List[str]] = None
+
 
 @get("/qmt/calendar")
 async def get_calendar(
@@ -76,26 +79,31 @@ async def get_instrument_type(
 
 
 @get("/qmt/instrument_detail")
-async def get_instrument_detail(sec: FromQuery[str]) -> dict|None:
+async def get_instrument_detail(sec: FromQuery[str]) -> dict | None:
     return xt.get_instrument_detail(sec.value)
 
 
 @get("/qmt/divid_factors")
 async def get_divid_factors(
-    sec: FromQuery[str], start: FromQuery[str] = FromQuery(""), end: FromQuery[str]=FromQuery("")
-)->str:
+    sec: FromQuery[str],
+    start: FromQuery[str] = FromQuery(EPOCH),
+    end: FromQuery[str] = FromQuery(""),
+) -> str:
     df = xt.get_divid_factors(sec.value, start.value, end.value)
     return df.to_json()
+
 
 @post("/qmt/market_data")
 async def get_market_data(params: FromJSON[MarketDataRequest]):
     req = params.value
-    data = xt.get_market_data(field_list=[],
-                       stock_list=req.stocks or [],
-                       period=req.period,
-                       start_time = req.start,
-                       end_time=req.end,
-                       count=req.count,
-                       dividend_type=req.dividend_type,
-                       fill_data=req.fill_data)
+    data = xt.get_market_data(
+        field_list=[],
+        stock_list=req.stocks or [],
+        period=req.period,
+        start_time=req.start,
+        end_time=req.end,
+        count=req.count,
+        dividend_type=req.dividend_type,
+        fill_data=req.fill_data,
+    )
     raise NotImplementedError
