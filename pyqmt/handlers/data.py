@@ -16,7 +16,7 @@ from blacksheep import (
     post,
 )
 
-from qmtserver.core.constants import EPOCH
+from pyqmt.core.constants import EPOCH
 
 
 @dataclass

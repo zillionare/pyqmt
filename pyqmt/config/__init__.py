@@ -20,9 +20,9 @@ def get_config_dir():
     if server_role == "DEV":
         _dir = path.normpath(path.join(path.dirname(__file__), "../config"))
     elif server_role == "TEST":
-        _dir = path.expanduser("~/.zillionare/qmtserver/config")
+        _dir = path.expanduser("~/.zillionare/pyqmt/config")
     else:
-        _dir = path.expanduser("~/zillionare/qmtserver/config")
+        _dir = path.expanduser("~/zillionare/pyqmt/config")
 
     sys.path.insert(0, _dir)
     return _dir
@@ -31,6 +31,6 @@ def get_config_dir():
 def endpoint():
     cfg = cfg4py.get_instance()
 
-    major, minor, *_ = version("zillionare-qmtserver").split(".")
+    major, minor, *_ = version("zillionare-pyqmt").split(".")
     prefix = cfg.server.prefix.rstrip("/")
     return f"{prefix}/v{major}.{minor}"

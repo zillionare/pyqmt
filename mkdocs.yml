@@ -1,7 +1,7 @@
-site_name: qmtserver
+site_name: pyqmt
 # site_url: http://www.jieyu.ai
-repo_url: https://github.com/zillionare/qmtserver
-repo_name: qmtserver
+repo_url: https://github.com/zillionare/pyqmt
+repo_name: pyqmt
 #strict: true
 nav:
   - home: index.md
@@ -59,7 +59,7 @@ plugins:
       lang: en
   - mkdocstrings:
       watch:
-        - qmtserver
+        - pyqmt
 extra:
   version:
     provider: mike
@@ -73,7 +73,7 @@ extra:
       link: http://www.jieyu.ai
       name: Facebook
     - icon: fontawesome/brands/github
-      link: https://github.com/zillionare/qmtserver
+      link: https://github.com/zillionare/pyqmt
       name: Github
     - icon: material/email
       link: "mailto:aaron_yang@jieyu.ai"

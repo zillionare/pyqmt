@@ -5,8 +5,8 @@
 # Once you got persona token, set enviroment variable GH_TOKEN with it
 
 # Create repo and push code to github
-gh repo create qmtserver --public
-git remote add origin git@github.com:zillionare/qmtserver.git
+gh repo create pyqmt --public
+git remote add origin git@github.com:zillionare/pyqmt.git
 git add .
 pre-commit run --all-files
 git add .

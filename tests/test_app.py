@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Tests for `qmtserver` package."""
+"""Tests for `pyqmt` package."""
 # pylint: disable=redefined-outer-name
 
 import pytest

@@ -1,4 +1,4 @@
-* qmtserver version:
+* pyqmt version:
 * Python version:
 * Operating System:
 

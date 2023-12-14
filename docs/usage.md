@@ -1,7 +1,7 @@
 # Usage
 
-To use qmtserver in a project
+To use pyqmt in a project
 
 ```
-    import qmtserver
+    import pyqmt
 ```

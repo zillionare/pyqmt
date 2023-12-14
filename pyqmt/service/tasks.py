@@ -17,9 +17,9 @@ from xtquant.xtdata import (
     get_stock_list_in_sector,
 )
 
-from qmtserver.config import get_config_dir
-from qmtserver.core import date2str, handle_xt_error, str2date, str2time, time2str
-from qmtserver.core.constants import (
+from pyqmt.config import get_config_dir
+from pyqmt.core import date2str, handle_xt_error, str2date, str2time, time2str
+from pyqmt.core.constants import (
     DATE_FORMAT,
     EPOCH,
     EPOCH_KEY,

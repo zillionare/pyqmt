@@ -1,1 +1,1 @@
-"""Unit test package for qmtserver."""
+"""Unit test package for pyqmt."""

@@ -8,9 +8,9 @@ import cfg4py
 from apscheduler.schedulers.background import BackgroundScheduler
 from blacksheep import Application, get
 
-from qmtserver.config import endpoint, get_config_dir
-from qmtserver.handlers import data
-from qmtserver.service import tasks
+from pyqmt.config import endpoint, get_config_dir
+from pyqmt.handlers import data
+from pyqmt.service import tasks
 
 logger = logging.getLogger(__name__)
 
