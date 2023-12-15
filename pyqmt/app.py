@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sqlite3
 
 import arrow
 import cfg4py
@@ -25,7 +26,12 @@ async def status():
 
 @app.on_start
 async def before_start(app: Application) -> None:
-    cfg4py.init(get_config_dir())
+    cfg = cfg4py.init(get_config_dir())
+
+    # init sqlite connection
+    cfg.sqlite = sqlite3.connect(cfg.sqlite.path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)  # type: ignore
+    cfg.sqlite.row_factory = sqlite3.Row
+
     sched.add_job(tasks.create_sync_jobs, args=(sched,))
 
     sched.start()
@@ -38,4 +44,5 @@ async def after_start(app: Application) -> None:
 
 @app.on_stop
 async def on_stop(app: Application) -> None:
-    pass
+    cfg = cfg4py.get_instance()
+    cfg.sqlite.close()
