@@ -9,7 +9,8 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from arrow import Arrow
 from coretypes import FrameType
 
-from pyqmt.core.journal import load_sync_status, save_sync_status
+from pyqmt.core.journal import bars_cache_status, save_bars_cache_status
+from pyqmt.core.xtwrapper import cache_bars
 
 Frame = Union[datetime.date, datetime.datetime]
 
@@ -48,7 +49,7 @@ def do_sync_forward(symbols: List[str], frame_type: FrameType):
 
     epoch --> start --> end |-- >now
     """
-    status = load_sync_status(frame_type)
+    status = bars_cache_status(frame_type)
 
     now = arrow.now().shift(days=-1)
     end = status["end"]
@@ -56,7 +57,7 @@ def do_sync_forward(symbols: List[str], frame_type: FrameType):
     span = -365 if frame_type == FrameType.DAY else -10
 
     if end is None:
-        job_start = end.shift(days=span)
+        job_start = now.shift(days=span)
     else:
         job_start = end
 
@@ -64,16 +65,13 @@ def do_sync_forward(symbols: List[str], frame_type: FrameType):
     if frame_type == FrameType.MIN1:
         job_start = job_start.floor("minute").replace(hour=9).replace(minute=30)
         now = now.floor("hour").replace(hour=15)
-        fmt = TIME_FORMAT
-    else:
-        fmt = DATE_FORMAT
 
-    download_history_data2(
-        symbols, frame_type.value, job_start.format(fmt), now.format(fmt)
-    )
+    result = cache_bars(symbols, frame_type, job_start, now)
+    if result is not None:
+        logger.info("cache_bars returns %s", result)
 
     start = arrow.get(status["start"] or job_start)
-    save_sync_status(start, now, frame_type)
+    save_bars_cache_status(start, now, frame_type)
     logger.info("done with %s forward sync: %s~%s", frame_type.value, start, end)
 
 
@@ -82,7 +80,7 @@ def do_sync_backward(symbols: List[str], frame_type: FrameType):
 
     epoch <--| start <--end <-- Now
     """
-    status = load_sync_status(frame_type)
+    status = bars_cache_status(frame_type)
 
     epoch = arrow.get(status["epoch"])
     start = status["start"]
@@ -128,11 +126,11 @@ def do_sync_backward(symbols: List[str], frame_type: FrameType):
         download_history_data2(
             symbols, frame_type.value, batch_start.format(fmt), cursor.format(fmt)
         )
-        save_sync_status(batch_start, arrow.get(status["end"]), frame_type)
+        save_bars_cache_status(batch_start, arrow.get(status["end"]), frame_type)
         cursor = start
 
-    start = load_sync_status(FrameType.DAY, "start")
-    end = load_sync_status(FrameType.DAY, "end")
+    start = bars_cache_status(FrameType.DAY, "start")
+    end = bars_cache_status(FrameType.DAY, "end")
     logger.info("done with 1d backward sync: %s~%s", start, end)
 
 

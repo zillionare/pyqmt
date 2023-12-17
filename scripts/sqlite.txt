@@ -1,16 +1,17 @@
 -- 创建qmt缓存下载任务错误表
-CREATE TABLE "cache_bars_failure"  (
+CREATE TABLE "bars_cache_failure"  (
   "id" integer not null primary key,
   "symbol" integer not null,
   "frame_type" integer not null,
   "frame" date not null,
   "reason" integer not null
-)
+);
 
-create index symbol_frame_idx on cache_bars_failure (symbol, frame_type, frame);
+
+create index symbol_frame_idx on bars_cache_failure (symbol, frame_type, frame);
 
 -- 创建qmt缓存下载任务表
-create table if not exists cache_bars_status (
+create table if not exists bars_cache_status (
     "id" INTEGER primary key AUTOINCREMENT,
     "start" date,
     "end" date,
@@ -18,8 +19,8 @@ create table if not exists cache_bars_status (
     "frame_type" int  --记录属于哪个周期。1分钟和1天允许不一样的起点
 );
 
-insert into cache_status (epoch, frame_type) values ('2022-01-01', 6);
-insert into cache_status (epoch, frame_type) values ('2022-01-01', 1);
+insert into bars_cache_status (epoch, frame_type) values ('2022-01-01', 6);
+insert into bars_cache_status (epoch, frame_type) values ('2022-01-01', 1);
 
 -- 创建clickhouse同步表
 create table if not exists sync_bars_jobs (
@@ -32,5 +33,5 @@ create table if not exists sync_bars_jobs (
     "factor" bool, -- 因子是否已同步到clickhouse
     "limit_price" bool, -- 涨跌停价是否已同步到clickhouse
     "suspend" bool, -- 停牌数据是否已同步到clickhouse
-    "turnover" bool, -- 换手率是否已同步到clickhouse
-)
+    "turnover" bool -- 换手率是否已同步到clickhouse
+);

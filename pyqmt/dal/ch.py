@@ -6,7 +6,7 @@ from coretypes import Frame, FrameType
 
 class ClickHouse(object):
     def __init__(self):
-        self.client: Client = None # type: ignore
+        self.client: Client = None  # type: ignore
 
     def start(self):
         cfg = cfg4py.get_instance()
@@ -24,4 +24,4 @@ class ClickHouse(object):
         else:
             table = "1m_bars"
 
-        self.client.insert(table, bars, column_names = bars.dtype.names)
+        self.client.insert(table, bars, column_names=bars.dtype.names)

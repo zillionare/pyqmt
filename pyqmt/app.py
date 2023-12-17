@@ -29,7 +29,7 @@ async def before_start(app: Application) -> None:
     cfg = cfg4py.init(get_config_dir())
 
     # init sqlite connection
-    cfg.sqlite = sqlite3.connect(cfg.sqlite.path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)  # type: ignore
+    cfg.sqlite = sqlite3.connect(cfg.sqlite_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)  # type: ignore
     cfg.sqlite.row_factory = sqlite3.Row
 
     sched.add_job(tasks.create_sync_jobs, args=(sched,))
