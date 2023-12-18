@@ -25,6 +25,14 @@ logging:
     handlers:
       - console
     level: INFO
-sqlite_path: d:\data\pyqmt.db
+chores_db_path: d:\data\pyqmt.db
+clickhouse:
+  host: 192.168.100.10
+  user: default
+  password: 123456
+  database: zillionare
+redis:
+  host: 192.168.100.10
+  port: 6379
 server:
   prefix: pyqmt

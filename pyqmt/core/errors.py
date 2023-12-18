@@ -11,9 +11,9 @@ class XtQuantError(Exception):
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.error_code}: {self.msg})"
-    
+
     @classmethod
-    def parse_msg(cls, msg: str) -> 'XtQuantError':
+    def parse_msg(cls, msg: str) -> "XtQuantError":
         """从xtquant的错误消息中，解析出具体的Error class"""
         if msg.startswith("行情服务连接断开"):
             return XtDisconnected(msg)
@@ -25,9 +25,11 @@ class XtQuantError(Exception):
                 return XtDownloadDataError(msg)
         else:
             return XtQuantError(msg)
-        
+
+
 class XtDisconnected(XtQuantError):
     pass
+
 
 class XtDownloadDataError(XtQuantError):
     pass

@@ -63,6 +63,8 @@ arrow = "^1.3.0"
 clickhouse-connect = "^0.6.22"
 zillionare-core-types = "^0.6.3"
 sqlite-web = "^0.6.1"
+redis = "^5.0.1"
+hiredis = "^2.3.2"
 [tool.poetry.extras]
 test = [
     "pytest",

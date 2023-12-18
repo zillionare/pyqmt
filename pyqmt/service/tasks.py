@@ -1,16 +1,23 @@
 import datetime
 import logging
 import os
+import time
 from functools import partial
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import cfg4py
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.job import Job
 from arrow import Arrow
 from coretypes import FrameType
 
-from pyqmt.core.journal import bars_cache_status, save_bars_cache_status
-from pyqmt.core.xtwrapper import cache_bars
+from pyqmt.core.timeframe import tf
+from pyqmt.core.xtwrapper import cache_bars, get_ashare_list, get_calendar
+from pyqmt.dal.chores import (
+    ashares_sync_status,
+    bars_cache_status,
+    save_bars_cache_status,
+)
 
 Frame = Union[datetime.date, datetime.datetime]
 
@@ -29,7 +36,8 @@ from pyqmt.core.constants import DATE_FORMAT, TIME_FORMAT
 logger = logging.getLogger(__name__)
 cfg = cfg4py.get_instance()
 
-def schedule_after(after, job_func, args):
+
+def schedule_after(after: Job, job_func: Callable, args: Tuple[List[str], FrameType]):
     def listener(after, job_func, args, event):
         if event.job_id != after.id:
             return
@@ -43,6 +51,7 @@ def schedule_after(after, job_func, args):
 
     my_listener = partial(listener, after, job_func, args)
     cfg.sched.add_listener(my_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+
 
 def do_sync_forward(symbols: List[str], frame_type: FrameType):
     """向未来同步
@@ -72,7 +81,7 @@ def do_sync_forward(symbols: List[str], frame_type: FrameType):
 
     start = arrow.get(status["start"] or job_start)
     save_bars_cache_status(start, now, frame_type)
-    logger.info("done with %s forward sync: %s~%s", frame_type.value, start, end)
+    logger.info("done with %s forward sync: %s~%s", frame_type.value, job_start, now)
 
 
 def do_sync_backward(symbols: List[str], frame_type: FrameType):
@@ -93,20 +102,19 @@ def do_sync_backward(symbols: List[str], frame_type: FrameType):
         logger.info("backward sync already done: %s~%s", start, epoch)
         return
 
-    assert start < arrow.now().date()
-
-    logger.info("start 1d backward sync: %s~%s", epoch, start)
+    start = arrow.get(start)
+    assert start < arrow.now()
 
     # convert date to Arrow
     cursor = arrow.get(start)
 
     if frame_type == FrameType.DAY:
-        fmt = DATE_FORMAT
         span = -365
     else:
         cursor = start.floor("hour").replace(hour=15)
-        fmt = TIME_FORMAT
         span = -10
+
+    logger.info("start %s backward sync: %s~%s", frame_type.value, epoch, cursor)
 
     while cursor > epoch:
         batch_start = cursor.shift(days=span)
@@ -123,15 +131,14 @@ def do_sync_backward(symbols: List[str], frame_type: FrameType):
             len(symbols),
         )
 
-        download_history_data2(
-            symbols, frame_type.value, batch_start.format(fmt), cursor.format(fmt)
-        )
+        cache_bars(symbols, frame_type, batch_start, cursor)
         save_bars_cache_status(batch_start, arrow.get(status["end"]), frame_type)
-        cursor = start
+        cursor = batch_start.shift(days=-1)
+        time.sleep(1)
 
-    start = bars_cache_status(FrameType.DAY, "start")
-    end = bars_cache_status(FrameType.DAY, "end")
-    logger.info("done with 1d backward sync: %s~%s", start, end)
+    start = bars_cache_status(frame_type, "start")
+    end = bars_cache_status(frame_type, "end")
+    logger.info("done with %s backward sync: %s~%s", frame_type.value, start, end)
 
 
 def create_sync_jobs():
@@ -148,15 +155,37 @@ def create_sync_jobs():
     job = cfg.sched.add_job(
         do_sync_forward, args=(stocks, FrameType.DAY), name="sync_forward_1d"
     )
-    schedule_after(cfg.sched, job, do_sync_backward, args=(stocks, FrameType.DAY))
+    schedule_after(job, do_sync_backward, args=(stocks, FrameType.DAY))
 
     job = cfg.sched.add_job(
         do_sync_forward, args=(stocks, FrameType.MIN1), name="sync_forward_1m"
     )
-    schedule_after(cfg.sched, job, do_sync_backward, args=(stocks, FrameType.MIN1))
+    schedule_after(job, do_sync_backward, args=(stocks, FrameType.MIN1))
 
     # TODO: 再启动定时任务，每天凌晨进行同步
+
+    # 任务2： 每天早上9点，清空get_ashare_list的缓存
+    cfg.sched.add_job(get_ashare_list.cache_clear, 'cron', hour='9')
 
 
 def save_day_bars(dt: datetime.date):
     """保存`dt`日的行情数据"""
+    pass
+
+
+def save_sector_list(force=False):
+    """保存当天的板块列表
+    
+    Args:
+        force: 如果dt在事务数据库中存在，则只有force为true时，才会重新转存。
+    """
+
+def save_ashare_list(force=False):
+    if ashares_sync_status() and not force:
+        return
+    
+def save_calendar():
+    """交易日历"""
+    calendar = get_calendar()
+    tf.save_calendar(calendar)
+

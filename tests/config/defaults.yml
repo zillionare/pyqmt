@@ -18,6 +18,11 @@ logging:
     handlers:
       - console
     level: INFO
-sqlite_path: ':memory:'
+chores_db_path: 'd:\\sqlite.test.db'
+clickhouse:
+  host: 192.168.100.10
+  user: default
+  password: 123456
+  database: tests
 server:
   prefix: pyqmt

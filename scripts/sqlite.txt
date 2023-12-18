@@ -22,7 +22,7 @@ create table if not exists bars_cache_status (
 insert into bars_cache_status (epoch, frame_type) values ('2022-01-01', 6);
 insert into bars_cache_status (epoch, frame_type) values ('2022-01-01', 1);
 
--- 创建clickhouse同步表
+-- 创建clickhouse行情同步表
 create table if not exists sync_bars_jobs (
     "id" INTEGER primary key AUTOINCREMENT,
     "start" date,
@@ -35,3 +35,17 @@ create table if not exists sync_bars_jobs (
     "suspend" bool, -- 停牌数据是否已同步到clickhouse
     "turnover" bool -- 换手率是否已同步到clickhouse
 );
+
+--创建clickhouse 板块同步表
+create table if not exists sync_secotrs_jobs(
+    "id" INTEGER primary key AUTOINCREMENT,
+    "frame" date, -- 日期
+    "count" int -- 当天板块数
+);
+
+-- 创建 clickhouse ashares list 同步表
+create table if not exists sync_ashare_list_status(
+    "frame" date primary key, -- 日期
+    "count" int -- 当天个股数
+);
+

@@ -1,37 +1,44 @@
-   CREATE TABLE zillionare._day_bars
-    (
-        `frame` Date,
-        `symbol` LowCardinality(String),
-        `open` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `high` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `low` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `close` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `volume` Float64 DEFAULT -1 ,
-        `money` Float64 DEFAULT -1 ,
-        `factor` Float64 DEFAULT -1 CODEC(Delta, ZSTD),
-        `hlim` Float32 DEFAULT -1 ,
-        `llim` Float32 DEFAULT -1 ,
-        `st` UInt8 DEFAULT 0 CODEC(Delta, ZSTD),
-        `suspend` UInt8 DEFAULT 0 CODEC(Delta, ZSTD),
-        `turnover` Float32 DEFAULT -1 
-    )
-    ENGINE = MergeTree
-    ORDER BY (frame, symbol)
-    ```
+CREATE TABLE _day_bars
+(
+    `frame` Date,
+    `symbol` LowCardinality(String),
+    `open` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `high` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `low` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `close` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `volume` Float64 DEFAULT -1 ,
+    `money` Float64 DEFAULT -1 ,
+    `factor` Float64 DEFAULT -1 CODEC(Delta, ZSTD),
+    `hlim` Float32 DEFAULT -1 ,
+    `llim` Float32 DEFAULT -1 ,
+    `st` UInt8 DEFAULT 0 CODEC(Delta, ZSTD),
+    `suspend` UInt8 DEFAULT 0 CODEC(Delta, ZSTD),
+    `turnover` Float32 DEFAULT -1 
+)
+ENGINE = MergeTree
+ORDER BY (frame, symbol)
 
-   ```
-   CREATE TABLE zillionare._1m_bars
-    (
-        `frame` DateTime64 CODEC(Delta, ZSTD),
-        `symbol` LowCardinality(String),
-        `open` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `high` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `low` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `close` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
-        `volume` Float64 DEFAULT -1 ,
-        `money` Float64 DEFAULT -1 ,
-        `factor` Float64 DEFAULT -1 CODEC(Delta, ZSTD)
-    )
-    ENGINE = MergeTree
-    ORDER BY (frame, symbol)
-    ```
+CREATE TABLE _1m_bars
+(
+    `frame` DateTime64 CODEC(Delta, ZSTD),
+    `symbol` LowCardinality(String),
+    `open` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `high` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `low` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `close` Float32 DEFAULT -1 CODEC(Delta, ZSTD),
+    `volume` Float64 DEFAULT -1 ,
+    `money` Float64 DEFAULT -1 ,
+    `factor` Float64 DEFAULT -1 CODEC(Delta, ZSTD)
+)
+ENGINE = MergeTree
+ORDER BY (frame, symbol)
+
+CREATE TABLE securities
+(
+    `date` Date CODEC(Delta, ZSTD),
+    `symbol` LowCardinality(String),
+    `type` LowCardinality(String)
+)
+ENGINE = MergeTree
+ORDER BY (date, symbol)
+
