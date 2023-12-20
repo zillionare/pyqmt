@@ -1,8 +1,10 @@
 import datetime
 from functools import cache
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import arrow
 import numpy as np
+import pandas as pd
 from arrow import Arrow
 from coretypes import Frame, FrameType
 from xtquant import xtdata as xt
@@ -62,4 +64,24 @@ def get_sectors():
 def get_calendar():
     market = 'SH'
     days = xt.get_trading_dates(market, start_time='', end_time='')
-    return np.array(days, dtype='datetime64[ms]').astype(datetime.date)
+    utc_datetime = pd.Series(days, dtype='datetime64[ms]').dt.tz_localize('UTC')
+    return utc_datetime.dt.tz_convert('Asia/Shanghai').dt.date.values
+
+def get_security_info(symbol: str)->Tuple[str, datetime.date, datetime.date]:
+    """获取证券详细信息, 即别名、IPO日、退市日
+
+    Args:
+        symbol: 证券品种代码
+    Returns:
+        证券显名名、IPO日和退市日。其它信息忽略掉。
+    """
+    item = xt.get_instrument_detail(symbol)
+    if item is None:
+        raise ValueError(f"invalid symbol: {symbol}")
+    
+    if item["ExpireDate"] == 99999999:
+        exit_day = datetime.date(2099, 12, 31)
+    else:
+        exit_day = arrow.get(item["ExpireDate"]).date()
+
+    return item["InstrumentName"], arrow.get(item["OpenDate"]).date(), exit_day

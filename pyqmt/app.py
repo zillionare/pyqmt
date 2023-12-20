@@ -10,7 +10,7 @@ from blacksheep import Application, get
 from pyqmt.config import get_config_dir
 from pyqmt.dal.cache import RedisCache
 from pyqmt.dal.ch import ClickHouse
-from pyqmt.service import tasks
+from pyqmt.service import sync
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,13 @@ async def before_start(app: Application) -> None:
     cfg = cfg4py.init(get_config_dir())
 
     # init chores database connection
-    cfg.chores_db = sqlite3.connect(cfg.chores_db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)  # type: ignore
+    cgx.chores_db = sqlite3.connect(cfg.chores_db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)  # type: ignore
     cfg.chores_db.row_factory = sqlite3.Row
 
     # init haystore client
     cfg.hay_store = ClickHouse() # type: ignore
     cfg.hay_store.connect()
-    sched.add_job(tasks.create_sync_jobs, args=(sched,))
+    sched.add_job(sync.create_sync_jobs, args=(sched,))
 
     # redis
     cfg.cache = RedisCache() # type: ignore

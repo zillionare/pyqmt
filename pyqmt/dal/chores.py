@@ -4,6 +4,7 @@ from typing import Any, Optional, Union
 
 import cfg4py
 from arrow import Arrow
+import datetime
 from coretypes import FrameType
 from numpy.typing import NDArray
 
@@ -32,9 +33,9 @@ def save_bars_cache_status(start: Arrow, end: Arrow, frame_type: FrameType):
     cur.execute(sql, (start.date(), end.date(), FrameType.to_int(frame_type)))
     cfg.chores_db.commit()
 
-def ashares_sync_status(dt: Arrow)->bool:
+def ashares_sync_status(dt: datetime.date)->bool:
     """检查某天的a股列表是否已同步到clickhouse"""
     cur = cfg.chores_db.cursor()
     sql = "select * from sync_ashare_list_status where frame = ?"
-    query = cur.execute(sql, (dt.date()))
+    query = cur.execute(sql, (dt, ))
     return query.fetchone() is not None

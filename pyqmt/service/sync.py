@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 import time
 from functools import partial
 from typing import Callable, List, Optional, Tuple, Union
@@ -9,10 +8,15 @@ import cfg4py
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.job import Job
 from arrow import Arrow
-from coretypes import FrameType
+from coretypes import FrameType, SecurityType
 
 from pyqmt.core.timeframe import tf
-from pyqmt.core.xtwrapper import cache_bars, get_ashare_list, get_calendar
+from pyqmt.core.xtwrapper import (
+    cache_bars,
+    get_ashare_list,
+    get_calendar,
+    get_security_info,
+)
 from pyqmt.dal.chores import (
     ashares_sync_status,
     bars_cache_status,
@@ -22,7 +26,6 @@ from pyqmt.dal.chores import (
 Frame = Union[datetime.date, datetime.datetime]
 
 import arrow
-from filelock import FileLock
 from xtquant.xtdata import (
     download_history_data2,
     download_sector_data,
@@ -53,7 +56,7 @@ def schedule_after(after: Job, job_func: Callable, args: Tuple[List[str], FrameT
     cfg.sched.add_listener(my_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
 
-def do_sync_forward(symbols: List[str], frame_type: FrameType):
+def sync_bars_forward(symbols: List[str], frame_type: FrameType):
     """向未来同步
 
     epoch --> start --> end |-- >now
@@ -84,7 +87,7 @@ def do_sync_forward(symbols: List[str], frame_type: FrameType):
     logger.info("done with %s forward sync: %s~%s", frame_type.value, job_start, now)
 
 
-def do_sync_backward(symbols: List[str], frame_type: FrameType):
+def sync_bars_backward(symbols: List[str], frame_type: FrameType):
     """向过去方向同步
 
     epoch <--| start <--end <-- Now
@@ -153,14 +156,14 @@ def create_sync_jobs():
 
     # 先启动往未来的同步，这样往过去的同步才会有锚点
     job = cfg.sched.add_job(
-        do_sync_forward, args=(stocks, FrameType.DAY), name="sync_forward_1d"
+        sync_bars_forward, args=(stocks, FrameType.DAY), name="sync_forward_1d"
     )
-    schedule_after(job, do_sync_backward, args=(stocks, FrameType.DAY))
+    schedule_after(job, sync_bars_backward, args=(stocks, FrameType.DAY))
 
     job = cfg.sched.add_job(
-        do_sync_forward, args=(stocks, FrameType.MIN1), name="sync_forward_1m"
+        sync_bars_forward, args=(stocks, FrameType.MIN1), name="sync_forward_1m"
     )
-    schedule_after(job, do_sync_backward, args=(stocks, FrameType.MIN1))
+    schedule_after(job, sync_bars_backward, args=(stocks, FrameType.MIN1))
 
     # TODO: 再启动定时任务，每天凌晨进行同步
 
@@ -168,23 +171,34 @@ def create_sync_jobs():
     cfg.sched.add_job(get_ashare_list.cache_clear, 'cron', hour='9')
 
 
-def save_day_bars(dt: datetime.date):
+def sync_day_bars(dt: datetime.date):
     """保存`dt`日的行情数据"""
     pass
 
 
-def save_sector_list(force=False):
+def sync_sector_list(force=False):
     """保存当天的板块列表
     
     Args:
         force: 如果dt在事务数据库中存在，则只有force为true时，才会重新转存。
     """
 
-def save_ashare_list(force=False):
-    if ashares_sync_status() and not force:
+def sync_ashare_list(force=False):
+    last_trading_day: datetime.date = tf.floor(arrow.now().date(), FrameType.DAY)
+    if ashares_sync_status(last_trading_day) and not force:
         return
     
-def save_calendar():
+    data = []
+    secs = get_ashare_list()
+    for sec in secs:
+        items = get_security_info(sec)
+        data.append((last_trading_day, sec, *items, SecurityType.STOCK.value))
+    
+    cfg.hay_store.save_ashare_list(data)
+    
+
+    
+def sync_calendar():
     """交易日历"""
     calendar = get_calendar()
     tf.save_calendar(calendar)

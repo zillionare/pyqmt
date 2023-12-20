@@ -12,7 +12,7 @@ class RedisCache:
     _security_ = 1
     def __init__(self):
         cfg = cfg4py.get_instance()
-        self.r = Redis(cfg.redis.host, cfg.redis.port, db=self._security_)
+        self.r = Redis(cfg.redis.host, cfg.redis.port, db=self._security_, encoding='utf-8', decode_responses=True)
 
     @property
     def security(self):

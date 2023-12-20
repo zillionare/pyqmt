@@ -1,5 +1,5 @@
 import datetime
-from typing import List
+from typing import List, Tuple
 
 import cfg4py
 import clickhouse_connect
@@ -32,19 +32,11 @@ class ClickHouse(object):
 
         self.client.insert(table, bars, column_names=bars.dtype.names)
 
-    def save_ashare_list(self, ashares: List[str], _type: SecurityType, dt: datetime.date):
-        """保存`frame`日的证券（股票、指数）列表
+    def save_ashare_list(self, data: List[Tuple[datetime.date, str, str, str, datetime.date, datetime.date]]):
+        """保存证券（股票、指数）列表
 
         Args:
-            ashares: 证券列表
-            _type: "stock", "index"中的一个
-            dt:  归属日期
+            data: contains date, code, alias, ipo day, exit day and type
         """
-        df = pd.DataFrame(ashares, columns=["symbol"])
-
-        df["symbol"] = df["symbol"].str.replace(".SH", ".XSHG")
-        df["symbol"] = df["symbol"].str.replace(".SZ", ".XSHE")
-        df["date"] = [dt] * len(df)
-        df["type"] = [_type.value] * len(df)
-
-        self.client.insert(CH_SECURITIES_TBL, df.values, column_names=df.columns)
+        cols = ["dt", "code", "alias", "ipo", "exit", "type"]
+        self.client.insert(CH_SECURITIES_TBL, data, column_names=cols)

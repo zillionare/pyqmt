@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import itertools
 import logging
-from types import NoneType
 from typing import List, Tuple, Union
 
 import arrow

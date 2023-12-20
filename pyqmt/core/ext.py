@@ -1,3 +1,6 @@
+import numpy as np
+
+
 def shift(arr, start, offset):
     """在numpy数组arr中,找到start(或者最接近的一个）,取offset对应的元素。
 
