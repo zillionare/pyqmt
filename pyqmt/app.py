@@ -9,7 +9,7 @@ from blacksheep import Application, get
 
 from pyqmt.config import get_config_dir
 from pyqmt.dal.cache import RedisCache
-from pyqmt.dal.ch import ClickHouse
+from pyqmt.dal.haystore import Haystore
 from pyqmt.service import sync
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,12 @@ async def before_start(app: Application) -> None:
     cfg.chores_db.row_factory = sqlite3.Row
 
     # init haystore client
-    cfg.hay_store = ClickHouse() # type: ignore
+    cfg.hay_store = Haystore()  # type: ignore
     cfg.hay_store.connect()
     sched.add_job(sync.create_sync_jobs, args=(sched,))
 
     # redis
-    cfg.cache = RedisCache() # type: ignore
+    cfg.cache = RedisCache()  # type: ignore
 
     sched.start()
 

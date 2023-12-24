@@ -1,4 +1,4 @@
-CREATE TABLE _day_bars
+CREATE TABLE if not exists bars_day
 (
     `frame` Date,
     `symbol` LowCardinality(String),
@@ -18,7 +18,7 @@ CREATE TABLE _day_bars
 ENGINE = MergeTree
 ORDER BY (frame, symbol)
 
-CREATE TABLE _1m_bars
+CREATE TABLE if not exists bars_1m
 (
     `frame` DateTime64 CODEC(Delta, ZSTD),
     `symbol` LowCardinality(String),
@@ -33,12 +33,16 @@ CREATE TABLE _1m_bars
 ENGINE = MergeTree
 ORDER BY (frame, symbol)
 
-CREATE TABLE securities
+
+CREATE TABLE if not exists securities
 (
-    `date` Date CODEC(Delta, ZSTD),
+    `dt` Date CODEC(Delta, ZSTD),
     `symbol` LowCardinality(String),
+    `alias` LowCardinality(String),
+    `ipo` Date CODEC(Delta, ZSTD),
+    `exit` Date CODEC(Delta, ZSTD),
     `type` LowCardinality(String)
 )
 ENGINE = MergeTree
-ORDER BY (date, symbol)
+ORDER BY (dt, symbol)
 

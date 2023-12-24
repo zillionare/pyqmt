@@ -49,25 +49,29 @@ def get_bars(symbols: List[str], frame_type: FrameType, start: Arrow, end: Arrow
         start_time=start.format(FMT),
         end_time=end.format(FMT),
         fill_data=False,
-        dividend_type='none'
+        dividend_type="none",
     )
+
 
 @cache
 def get_ashare_list():
     ashare_all = "沪深A股"
     return xt.get_stock_list_in_sector(ashare_all)
 
+
 def get_sectors():
     sectors = xt.download_sector_data()
 
+
 @cache
 def get_calendar():
-    market = 'SH'
-    days = xt.get_trading_dates(market, start_time='', end_time='')
-    utc_datetime = pd.Series(days, dtype='datetime64[ms]').dt.tz_localize('UTC')
-    return utc_datetime.dt.tz_convert('Asia/Shanghai').dt.date.values
+    market = "SH"
+    days = xt.get_trading_dates(market, start_time="", end_time="")
+    utc_datetime = pd.Series(days, dtype="datetime64[ms]").dt.tz_localize("UTC")
+    return utc_datetime.dt.tz_convert("Asia/Shanghai").dt.date.values
 
-def get_security_info(symbol: str)->Tuple[str, datetime.date, datetime.date]:
+
+def get_security_info(symbol: str) -> Tuple[str, datetime.date, datetime.date]:
     """获取证券详细信息, 即别名、IPO日、退市日
 
     Args:
@@ -78,10 +82,20 @@ def get_security_info(symbol: str)->Tuple[str, datetime.date, datetime.date]:
     item = xt.get_instrument_detail(symbol)
     if item is None:
         raise ValueError(f"invalid symbol: {symbol}")
-    
+
     if item["ExpireDate"] == 99999999:
         exit_day = datetime.date(2099, 12, 31)
     else:
         exit_day = arrow.get(item["ExpireDate"]).date()
 
     return item["InstrumentName"], arrow.get(item["OpenDate"]).date(), exit_day
+
+
+def get_factor(symbol: str, start: Union[datetime.date,str], end: datetime.date):
+    start_ = arrow.get(start)
+    end_ = arrow.get(end)
+    df = xt.get_divid_factors(
+        symbol, start_time=start_.format(DATE_FORMAT), end_time=end_.format(DATE_FORMAT)
+    )
+
+    return df["dr"]

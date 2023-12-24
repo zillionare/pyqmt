@@ -13,7 +13,7 @@ from os import path
 
 import cfg4py
 
-from pyqmt.dal.ch import ClickHouse
+from pyqmt.dal.haystore import Haystore
 
 TABLE_PARAMETER = "{TABLE_PARAMETER}"
 DROP_TABLE_SQL = f"DROP TABLE {TABLE_PARAMETER};"
@@ -63,9 +63,10 @@ def init_chores_db(conn):
         cursor.executescript(sql)
         conn.commit()
 
+
 def init_haystore():
     cfg = cfg4py.init(get_config_dir())
-    haystore = ClickHouse()
+    haystore = Haystore()
     haystore.connect()
 
     cmd = "truncate database if exists tests"
@@ -73,7 +74,7 @@ def init_haystore():
 
     # create tables
     scripts = os.path.join(os.path.dirname(__file__), "../../scripts/clickhouse.txt")
-    with open(scripts, "r", encoding='utf-8') as f:
+    with open(scripts, "r", encoding="utf-8") as f:
         content = f.read()
 
         for sql in content.split("\n\n"):

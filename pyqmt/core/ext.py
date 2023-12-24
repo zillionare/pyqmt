@@ -33,7 +33,8 @@ def shift(arr, start, offset):
         return start
     else:
         return arr[pos + offset - 1]
-    
+
+
 def count_between(arr, start, end):
     """计算数组中，`start`元素与`end`元素之间共有多少个元素
 
@@ -57,6 +58,7 @@ def count_between(arr, start, end):
         counter -= 1
 
     return counter
+
 
 def floor(arr, item):
     """

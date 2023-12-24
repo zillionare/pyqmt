@@ -10,6 +10,7 @@ from tests.config import get_config_dir, init_haystore
 def setup():
     init_haystore()
 
+
 def test_save_securities():
     cfg = cfg4py.get_instance()
 

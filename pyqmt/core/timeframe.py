@@ -21,6 +21,8 @@ EPOCH = datetime.datetime(1970, 1, 1, 0, 0, 0)
 CALENDAR_START = datetime.date(2005, 1, 4)
 
 cfg = cfg4py.get_instance()
+
+
 class TimeFrame:
     minute_level_frames = [
         FrameType.MIN1,
@@ -405,7 +407,9 @@ class TimeFrame:
         return int(count_between(cls.day_frames, istart, iend))
 
     @classmethod
-    def count_week_frames(cls, start: datetime.date | Arrow, end: datetime.date | Arrow) -> int:
+    def count_week_frames(
+        cls, start: datetime.date | Arrow, end: datetime.date | Arrow
+    ) -> int:
         """
         calc trade weeks between start and end in close-to-close way. Both start and
         end will be aligned to open trade day before calculation. After that, if start
@@ -423,7 +427,9 @@ class TimeFrame:
         return int(count_between(cls.week_frames, istart, iend))
 
     @classmethod
-    def count_month_frames(cls, start: datetime.date | Arrow, end: datetime.date | Arrow) -> int:
+    def count_month_frames(
+        cls, start: datetime.date | Arrow, end: datetime.date | Arrow
+    ) -> int:
         """calc trade months between start and end date in close-to-close way
         Both start and end will be aligned to open trade day before calculation. After
         that, if start == end, this will returns 1.
@@ -443,7 +449,9 @@ class TimeFrame:
         return int(count_between(cls.month_frames, istart, iend))
 
     @classmethod
-    def count_quarter_frames(cls, start: datetime.date | Arrow, end: datetime.date | Arrow) -> int:
+    def count_quarter_frames(
+        cls, start: datetime.date | Arrow, end: datetime.date | Arrow
+    ) -> int:
         """calc trade quarters between start and end date in close-to-close way
         Both start and end will be aligned to open trade day before calculation. After
         that, if start == end, this will returns 1.
@@ -463,7 +471,9 @@ class TimeFrame:
         return int(count_between(cls.quarter_frames, istart, iend))
 
     @classmethod
-    def count_year_frames(cls, start: datetime.date | Arrow, end: datetime.date | Arrow) -> int:
+    def count_year_frames(
+        cls, start: datetime.date | Arrow, end: datetime.date | Arrow
+    ) -> int:
         """calc trade years between start and end date in close-to-close way
         Both start and end will be aligned to open trade day before calculation. After
         that, if start == end, this will returns 1.
@@ -525,9 +535,9 @@ class TimeFrame:
             FrameType.MIN30,
             FrameType.MIN60,
         ]:
-            tm_start = start.hour * 60 + start.minute # type: ignore
-            tm_end = end.hour * 60 + end.minute # type: ignore
-            days = cls.count_day_frames(start.date(), end.date()) - 1 # type: ignore
+            tm_start = start.hour * 60 + start.minute  # type: ignore
+            tm_end = end.hour * 60 + end.minute  # type: ignore
+            days = cls.count_day_frames(start.date(), end.date()) - 1  # type: ignore
 
             tm_start_pos = cls.ticks[frame_type].index(tm_start)
             tm_end_pos = cls.ticks[frame_type].index(tm_end)
@@ -1158,6 +1168,7 @@ class TimeFrame:
 
             month_end = TimeFrame.month_shift(month_start, 1)
             return month_start, month_end
+
 
 tf = TimeFrame()
 

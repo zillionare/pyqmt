@@ -16,4 +16,13 @@ min_level_frames = [
     FrameType.MIN60,
 ]
 
-CH_SECURITIES_TBL = "securities"
+class HaystoreTbl:
+    securities = "securities"
+    bars_1m = "bars_1m"
+    bars_1d = "bars_1d"
+
+class ChoreTbl:
+    ashares_sync = "sync_ashare_list_status"
+    bars_cache = "bars_cache_status"
+    sync_bars_jobs = "sync_bars_jobs"
+    sync_sector_jobs = "sync_sector.jobs"
