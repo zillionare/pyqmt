@@ -1,9 +1,8 @@
 """实时行情服务
 
-支持三种模式:
+支持两种模式:
 1. qmt: 直接从本地 QMT 获取全推数据（Windows 环境推荐）
-2. redis: 从 Redis 订阅数据（Linux 环境，从 Pro 版本接收数据）
-3. none: 不使用实时行情（仅使用历史数据）
+2. none: 不使用实时行情（仅使用历史数据）
 """
 
 import datetime
@@ -11,7 +10,6 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-import msgpack
 import polars as pl
 from loguru import logger
 
@@ -27,7 +25,7 @@ from pyqmt.data.fetchers.tushare import fetch_limit_price
 class LiveQuote:
     """实时行情服务
 
-    支持从 QMT 直连或 Redis 订阅全推数据，并维护一个进程内字典缓存。
+    支持从 QMT 直连获取全推数据，并维护一个进程内字典缓存。
     同时维护实时分钟线和日线数据，用于策略计算和图表展示。
     """
 
@@ -46,6 +44,18 @@ class LiveQuote:
         # 实时 K 线数据 - 使用 Polars DataFrame 存储
         # 分钟线: 当前交易日的分钟数据
         self._minute_bars: pl.DataFrame = pl.DataFrame(
+            schema={
+                "symbol": pl.Utf8,
+                "frame": pl.Datetime,
+                "open": pl.Float64,
+                "high": pl.Float64,
+                "low": pl.Float64,
+                "close": pl.Float64,
+                "volume": pl.Int64,
+                "amount": pl.Float64,
+            }
+        )
+        self._min30_bars: pl.DataFrame = pl.DataFrame(
             schema={
                 "symbol": pl.Utf8,
                 "frame": pl.Datetime,
@@ -78,7 +88,6 @@ class LiveQuote:
 
         self._is_running = False
         self._mode: str | None = None
-        self._redis_client = None
 
         # 当前交易日期
         self._trade_date: datetime.date | None = None
@@ -88,7 +97,6 @@ class LiveQuote:
 
         根据配置 mode 选择数据源:
         - qmt: 从本地 QMT 订阅全推数据
-        - redis: 从 Redis 订阅数据
         - none: 不使用实时行情，仅启动涨跌停刷新
         """
         if self._is_running:
@@ -101,8 +109,6 @@ class LiveQuote:
 
         if self._mode == "qmt":
             self._start_qmt_subscription()
-        elif self._mode == "redis":
-            self._start_redis_subscription()
         elif self._mode == "none":
             logger.info("LiveQuote running in none mode, no real-time quotes")
         else:
@@ -114,12 +120,6 @@ class LiveQuote:
     def stop(self):
         """停止服务"""
         self._is_running = False
-        if self._redis_client:
-            try:
-                self._redis_client.close()
-            except Exception:
-                pass
-        # QMT 不需要显式停止订阅
         logger.info("LiveQuote service stopped")
 
     def _start_qmt_subscription(self):
@@ -238,6 +238,7 @@ class LiveQuote:
             if self._trade_date != today:
                 self._trade_date = today
                 self._minute_bars = self._minute_bars.clear()
+                self._min30_bars = self._min30_bars.clear()
                 self._daily_bars = self._daily_bars.clear()
                 logger.info(f"New trade date: {today}, cleared bars cache")
 
@@ -314,6 +315,43 @@ class LiveQuote:
 
             # 追加到分钟线缓存
             self._minute_bars = self._minute_bars.vstack(minute_df).sort(["symbol", "frame"])
+            msg_hub.publish(Topics.BARS_1M.value, minute_df.to_dicts())
+
+            current_30m = now.replace(
+                minute=(now.minute // 30) * 30,
+                second=0,
+                microsecond=0,
+            )
+            next_30m = current_30m + datetime.timedelta(minutes=30)
+            bars_30m = (
+                self._minute_bars
+                .filter((pl.col("frame") >= current_30m) & (pl.col("frame") < next_30m))
+                .sort(["symbol", "frame"])
+                .group_by("symbol")
+                .agg([
+                    pl.col("open").first().alias("open"),
+                    pl.col("high").max().alias("high"),
+                    pl.col("low").min().alias("low"),
+                    pl.col("close").last().alias("close"),
+                    pl.col("volume").sum().cast(pl.Int64).alias("volume"),
+                    pl.col("amount").sum().cast(pl.Float64).alias("amount"),
+                ])
+                .with_columns(pl.lit(current_30m).alias("frame"))
+                .select([
+                    "symbol",
+                    "frame",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "amount",
+                ])
+            )
+            if len(bars_30m) > 0:
+                self._min30_bars = self._min30_bars.filter(pl.col("frame") != current_30m)
+                self._min30_bars = self._min30_bars.vstack(bars_30m).sort(["symbol", "frame"])
+                msg_hub.publish(Topics.BARS_30M.value, bars_30m.to_dicts())
 
             # 2. 合成日线 - 更新预生成的框架中的价格数据
             # 将最新 tick 数据转换为更新格式
@@ -349,12 +387,10 @@ class LiveQuote:
                 # 更新预生成框架中的价格数据（使用 join 更新）
                 # 先删除这些 symbol 的旧数据
                 existing_symbols = tick_update["symbol"].to_list()
+                framework = self._daily_bars.filter(pl.col("symbol").is_in(existing_symbols))
                 self._daily_bars = self._daily_bars.filter(
                     ~pl.col("symbol").is_in(existing_symbols)
                 )
-
-                # 从原框架获取这些 symbol 的 limit 和 adjust
-                framework = self._daily_bars.filter(pl.col("symbol").is_in(existing_symbols))
 
                 # 合并 tick 数据和框架数据
                 merged = tick_update.join(
@@ -383,87 +419,10 @@ class LiveQuote:
                 ])
 
                 self._daily_bars = self._daily_bars.vstack(new_rows).sort("symbol")
+            msg_hub.publish(Topics.BARS_1D.value, self._daily_bars.to_dicts())
 
         except Exception as e:
             logger.error("Error merging bars: {}", e)
-
-    def _start_redis_subscription(self):
-        """从 Redis 订阅全推数据（Linux 远程模式）"""
-        try:
-            import redis
-        except ImportError:
-            logger.error("redis package is required for redis mode")
-            return
-
-        # 获取 Redis 配置
-        redis_cfg = getattr(cfg.livequote, "redis", None)
-        if redis_cfg is None:
-            logger.error("Redis configuration not found in cfg.livequote.redis")
-            return
-
-        try:
-            # 注意：不设置 decode_responses=True 以支持 msgpack 二进制数据
-            self._redis_client = redis.Redis(
-                host=redis_cfg.host,
-                port=redis_cfg.port,
-                decode_responses=False
-            )
-            logger.info(
-                f"Connected to Redis at {redis_cfg.host}:{redis_cfg.port}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            return
-
-        def redis_listener():
-            try:
-                pubsub = self._redis_client.pubsub()  # type: ignore
-
-                # 订阅配置的频道
-                channels = getattr(
-                    redis_cfg, "channels", [Topics.QUOTES_ALL.value, Topics.STOCK_LIMIT.value]
-                )
-                pubsub.subscribe(*channels)
-                logger.info(f"Subscribed to Redis channels: {channels}")
-
-                for item in pubsub.listen():
-                    if item["type"] == "message":
-                        self._on_redis_message(item["channel"], item["data"])
-            except Exception as e:
-                logger.exception(f"Redis listener crashed: {e}")
-            finally:
-                logger.info("Redis listener exited")
-
-        thread = threading.Thread(
-            target=redis_listener, name="RedisQuoteListener", daemon=True
-        )
-        thread.start()
-
-    def _on_redis_message(self, channel: bytes | str, raw_data: bytes):
-        """处理来自 Redis 的原始消息字节流"""
-        start_time = time.perf_counter()
-        try:
-            # 约定：发布端必须使用 msgpack 序列化
-            data = msgpack.unpackb(raw_data)
-
-            if isinstance(channel, bytes):
-                channel = channel.decode("utf-8")
-
-            if channel == Topics.QUOTES_ALL.value:
-                self._cache_and_broadcast(data)
-            elif channel == Topics.STOCK_LIMIT.value:
-                self._cache_limits_and_broadcast(data)
-
-            # 性能监控：单条消息处理超过 50ms 报警
-            duration = (time.perf_counter() - start_time) * 1000
-            if duration > 50:
-                logger.warning(
-                    "Slow quote processing: {:.2f}ms for {} items",
-                    duration,
-                    len(data),
-                )
-        except Exception as e:
-            logger.error("Error decoding msgpack quote: {}", e)
 
     def _start_limit_schedule(self):
         """启动定时任务
@@ -532,6 +491,7 @@ class LiveQuote:
             if self._trade_date != today:
                 self._trade_date = today
                 self._minute_bars = self._minute_bars.clear()
+                self._min30_bars = self._min30_bars.clear()
                 self._daily_bars = self._daily_bars.clear()
                 logger.info(f"Bars cache cleared for new trade date: {today}")
         except Exception as e:
@@ -599,24 +559,6 @@ class LiveQuote:
         self._limits.update(
             df.set_index("asset")[["up_limit", "down_limit"]].to_dict("index")
         )  # type: ignore
-
-    def _cache_and_broadcast(self, data: Dict[str, Any]):
-        """处理行情数据并广播（用于 Redis 模式）"""
-        self._cache.update(data)
-        # 发布通知
-        msg_hub.publish(Topics.QUOTES_ALL.value, data)
-
-    def _cache_limits(self, data: Dict[str, Any]):
-        """缓存涨跌停数据"""
-        if not data:
-            return
-        self._limits.update(data)
-
-    def _cache_limits_and_broadcast(self, data: Dict[str, Any]):
-        """缓存涨跌停数据并广播"""
-        self._cache_limits(data)
-        # 发布通知
-        msg_hub.publish(Topics.STOCK_LIMIT.value, data)
 
     def _fetch_adj_factors_with_retry(self):
         """获取当天复权因子（带重试机制）
@@ -913,6 +855,11 @@ class LiveQuote:
     def all_daily_bars(self) -> pl.DataFrame:
         """获取所有日线数据"""
         return self._daily_bars.clone()
+
+    @property
+    def all_30m_bars(self) -> pl.DataFrame:
+        """获取所有30分钟线数据"""
+        return self._min30_bars.clone()
 
     @property
     def mode(self) -> str | None:

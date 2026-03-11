@@ -177,3 +177,6 @@ class Topics(Enum):
 
     QUOTES_ALL = "quotes.all"
     STOCK_LIMIT = "stock_limit"
+    BARS_1M = "bars.1m"
+    BARS_30M = "bars.30m"
+    BARS_1D = "bars.1d"

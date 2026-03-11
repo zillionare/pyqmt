@@ -71,6 +71,7 @@ from pyqmt.service.registry import BrokerRegistry
 from pyqmt.service.qmt_broker import QMTBroker
 from pyqmt.service.sim_broker import SimulationBroker
 from pyqmt.web.apis.broker import app as broker_api_app
+from pyqmt.web.apis.quotes_ws import app as quotes_ws_app
 from pyqmt.web.auth.manager import AuthManager
 from pyqmt.web.middleware import BrokerRegistryMiddleware, exception_handler
 from pyqmt.web.middleware_init import InitCheckMiddleware
@@ -219,6 +220,7 @@ def init():
             Mount("/api/v1/indices", index_router),
             Mount("/api/v1/kline", kline_router),
             Mount("/api/v1/search", search_router),
+            Mount("/ws", quotes_ws_app),
             Mount("/", home_app),
         ],
     )

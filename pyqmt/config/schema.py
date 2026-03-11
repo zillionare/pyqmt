@@ -46,11 +46,6 @@ class Config(object):
             path: str
             markets: list
 
-        class redis:
-            host: str
-            port: int
-            channels: list
-
     brokers: list
 
     class qmt:

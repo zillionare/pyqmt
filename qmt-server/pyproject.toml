@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "qmt-server"
+version = "0.1.0"
+description = "QMT-only realtime quote and trade server"
+authors = ["Aaron <aaron@example.com>"]
+packages = [{ include = "qmt_server" }]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+zillionare-pyqmt = { path = "..", develop = true }
+python-fasthtml = "^0.12.36"
+loguru = "^0.7.3"
+apscheduler = "^3.10.4"
+
+[tool.poetry.scripts]
+qmt-server = "qmt_server.app:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

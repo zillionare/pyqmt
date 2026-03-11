@@ -19,7 +19,6 @@ apikeys:
 # 实时行情数据源配置
 # 可选模式:
 #   - qmt: 直接从本地 QMT 获取全推数据（Windows 环境推荐）
-#   - redis: 从 Redis 订阅数据（Linux 环境，从 Pro 版本接收数据）
 #   - none: 不使用实时行情（仅使用历史数据）
 livequote:
   mode: qmt
@@ -32,14 +31,6 @@ livequote:
       - SH
       - SZ
       - BJ
-  # Redis 配置（当 mode 为 redis 时使用）
-  redis:
-    host: "localhost"
-    port: 6379
-    # 订阅的频道
-    channels:
-      - quotes_all
-      - stock_limit
 
 brokers:
   - kind: backtest
