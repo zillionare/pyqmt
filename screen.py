@@ -523,6 +523,10 @@ class Screener:
 
         results = []
         for symbol in recent_df["symbol"].unique():
+            # 过滤9开头的股票（北交所等）
+            if symbol.startswith('9'):
+                continue
+
             symbol_df = recent_df.filter(pl.col("symbol") == symbol)
 
             has_spike, t0_date, ratio = check_volume_spike(symbol_df, symbol)
@@ -548,11 +552,6 @@ class Screener:
                 # 获取放量当天的换手率
                 t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
                 turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
-
-                # 过滤放量当天换手率不足5%的股票
-                if turnover < 5:
-                    logger.debug(f"{symbol} 放量当天换手率={turnover:.2f}% < 5%，跳过")
-                    continue
 
                 result = {
                     "symbol": symbol,
@@ -616,6 +615,10 @@ class Screener:
 
         results = []
         for symbol in recent_df["symbol"].unique():
+            # 过滤9开头的股票（北交所等）
+            if symbol.startswith('9'):
+                continue
+
             symbol_df = recent_df.filter(pl.col("symbol") == symbol)
             symbol_df = symbol_df.sort("trade_date")
             closes = symbol_df["close"].to_list()
