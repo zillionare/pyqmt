@@ -15,6 +15,7 @@
 """
 
 import datetime
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -27,8 +28,9 @@ import tushare as ts
 from loguru import logger
 from tabulate import tabulate
 
-# 配置日志级别为INFO
-logger.configure(handlers=[{"sink": "sys.stderr", "level": "INFO"}])
+# 配置日志级别为INFO，输出到stdout
+logger.remove()
+logger.add(sys.stdout, level="INFO")
 
 # 默认缓存路径
 DEFAULT_CACHE_PATH = "/tmp/screen.pq"
@@ -359,9 +361,13 @@ def check_consecutive_yang(df: pl.DataFrame, t0_date: datetime.date) -> tuple[bo
 
     min_volume = float('inf')
     for row in df_after.iter_rows(named=True):
-        if row["close"] <= row["open"]:
+        close_price = row["close"]
+        open_price = row["open"]
+        volume = row.get("volume", 0)
+
+        if close_price <= open_price:
             return False, 0.0
-        min_volume = min(min_volume, row.get("volume", 0))
+        min_volume = min(min_volume, volume)
 
     return True, min_volume
 
@@ -511,7 +517,6 @@ class Screener:
         - 存在某日成交量是之前5倍以上（t0日）
         - t0日之后都收阳线
         """
-        logger.level(log_level)
         logger.info("开始成交量放大筛选...")
         self._load_data()
 
@@ -527,8 +532,14 @@ class Screener:
 
         results = []
         for symbol in recent_df["symbol"].unique():
+            stock_name = self.stock_names.get(symbol, symbol)
+
             # 过滤9开头的股票（北交所等）
             if symbol.startswith('9'):
+                continue
+
+            # 过滤ST股票
+            if stock_name and ('ST' in stock_name or '*ST' in stock_name):
                 continue
 
             symbol_df = recent_df.filter(pl.col("symbol") == symbol)
@@ -538,38 +549,51 @@ class Screener:
             if not has_spike or t0_date is None:
                 continue
 
+            # 过滤放量前一天是一字板的股票（涨跌幅在0%到1%之间）
+            df_before = symbol_df.filter(pl.col("trade_date") < t0_date)
+            if not df_before.is_empty():
+                df_before = df_before.sort("trade_date", descending=True)
+                prev_row = df_before.row(0, named=True)
+                prev_return = prev_row["close"] / prev_row["open"] - 1 if prev_row["open"] > 0 else 0
+                if 0 <= prev_return <= 0.01:
+                    continue
+
             is_yang, min_volume_after = check_consecutive_yang(symbol_df, t0_date)
-            if is_yang:
-                stock_name = self.stock_names.get(symbol, symbol)
 
-                # 过滤放量后成交量小于5的股票（单位：万手）
-                if min_volume_after < 5:
-                    logger.debug(f"{stock_name}({symbol}) 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
-                    continue
+            # 计算放量后的最小成交量（无论是否连续阳线）
+            df_after = symbol_df.filter(pl.col("trade_date") > t0_date)
+            min_volume_after_all = df_after["volume"].min() if not df_after.is_empty() else 0.0
 
-                # RSI使用全量数据计算（默认70天以确保准确）
-                rsi = self._get_rsi_for_symbol(symbol)
+            # 过滤放量后成交量小于5的股票（单位：万手）
+            if min_volume_after_all < 5:
+                continue
 
-                # 过滤最后一天RSI小于50的股票
-                if rsi < 50:
-                    logger.debug(f"{stock_name}({symbol}) RSI={rsi:.2f} < 50，跳过")
-                    continue
+            # RSI使用全量数据计算（默认70天以确保准确）
+            rsi = self._get_rsi_for_symbol(symbol)
 
-                # 获取放量当天的换手率
-                t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
-                turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
+            # 过滤最后一天RSI小于50的股票
+            if rsi < 50:
+                continue
 
-                result = {
-                    "symbol": symbol,
-                    "name": self.stock_names.get(symbol, "未知"),
-                    "t0_date": t0_date.strftime("%Y-%m-%d") if hasattr(t0_date, 'strftime') else str(t0_date)[:10],
-                    "volume_ratio": round(ratio, 2),
-                    "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
-                    "turnover": round(turnover, 2),
-                    "rsi_6": rsi,
-                }
+            # 获取放量当天的换手率
+            t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
+            turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
 
-                results.append(result)
+            # 过滤放量当天换手率不足5%的股票
+            if turnover < 5:
+                continue
+
+            result = {
+                "symbol": symbol,
+                "name": self.stock_names.get(symbol, "未知"),
+                "t0_date": t0_date.strftime("%Y-%m-%d") if hasattr(t0_date, 'strftime') else str(t0_date)[:10],
+                "volume_ratio": round(ratio, 2),
+                "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
+                "turnover": round(turnover, 2),
+                "rsi_6": rsi,
+            }
+
+            results.append(result)
 
         print("\n" + "=" * 80)
         print("成交量放大筛选结果")
@@ -582,8 +606,9 @@ class Screener:
             print(f"(数据天数: {self.data_days}天，RSI-6基于全量数据计算)")
             print()
 
-            # 使用 tabulate 打印表格
+            # 使用 tabulate 打印表格，按换手率从大到小排序
             df = pl.DataFrame(results).to_pandas()
+            df = df.sort_values("turnover", ascending=False)
             headers = {
                 "symbol": "代码",
                 "name": "名称",
