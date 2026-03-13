@@ -549,6 +549,11 @@ class Screener:
                 t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
                 turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
 
+                # 过滤放量当天换手率不足5%的股票
+                if turnover < 5:
+                    logger.debug(f"{symbol} 放量当天换手率={turnover:.2f}% < 5%，跳过")
+                    continue
+
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
