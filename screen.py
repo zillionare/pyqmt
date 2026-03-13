@@ -27,6 +27,9 @@ import tushare as ts
 from loguru import logger
 from tabulate import tabulate
 
+# 配置日志级别为INFO
+logger.configure(handlers=[{"sink": "sys.stderr", "level": "INFO"}])
+
 # 默认缓存路径
 DEFAULT_CACHE_PATH = "/tmp/screen.pq"
 
@@ -536,9 +539,11 @@ class Screener:
 
             is_yang, min_volume_after = check_consecutive_yang(symbol_df, t0_date)
             if is_yang:
+                stock_name = self.stock_names.get(symbol, symbol)
+
                 # 过滤放量后成交量小于5的股票（单位：万手）
                 if min_volume_after < 5:
-                    logger.debug(f"{symbol} 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
+                    logger.debug(f"{stock_name}({symbol}) 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
                     continue
 
                 # RSI使用全量数据计算（默认70天以确保准确）
@@ -546,7 +551,7 @@ class Screener:
 
                 # 过滤最后一天RSI小于50的股票
                 if rsi < 50:
-                    logger.debug(f"{symbol} RSI={rsi:.2f} < 50，跳过")
+                    logger.debug(f"{stock_name}({symbol}) RSI={rsi:.2f} < 50，跳过")
                     continue
 
                 # 获取放量当天的换手率
@@ -627,11 +632,13 @@ class Screener:
 
             if last_slope != 0.0 or r_squared != 0.0:
                 # RSI使用全量数据计算（默认70天以确保准确）
+                stock_name = self.stock_names.get(symbol, symbol)
+
                 rsi = self._get_rsi_for_symbol(symbol)
 
                 # 过滤最后一天RSI小于50的股票
                 if rsi < 50:
-                    logger.debug(f"{symbol} RSI={rsi:.2f} < 50，跳过")
+                    logger.debug(f"{stock_name}({symbol}) RSI={rsi:.2f} < 50，跳过")
                     continue
 
                 # 检查近3天RSI是否有超过90的（过滤超买后回调的股票）
@@ -639,6 +646,7 @@ class Screener:
                 has_extreme_rsi = any(r > 90 for r in recent_rsi_series if r > 0)
 
                 if has_extreme_rsi:
+                    logger.debug(f"{stock_name}({symbol}) 近3天有RSI超过90，跳过")
                     continue
 
                 result = {
