@@ -460,22 +460,19 @@ class Screener:
                 continue
 
             if check_consecutive_yang(symbol_df, t0_date):
-                t0_data = symbol_df.filter(pl.col("trade_date") == t0_date).row(0, named=True)
                 volatility = calc_volatility(symbol_df)
+                # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
-                    "t0_date": t0_date,
-                    "t0_close": round(t0_data["close"], 2),
+                    "t0_date": t0_date.strftime("%Y-%m-%d") if hasattr(t0_date, 'strftime') else str(t0_date)[:10],
                     "volume_ratio": round(ratio, 2),
                     "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
                     "volatility": volatility,
+                    "rsi_6": rsi,
                 }
-
-                if self.data_days >= 60:
-                    result["rsi_6"] = rsi
 
                 results.append(result)
 
@@ -487,8 +484,7 @@ class Screener:
             print("没有符合条件的股票")
         else:
             print(f"共找到 {len(results)} 只符合条件的股票:")
-            if self.data_days >= 60:
-                print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
+            print(f"(数据天数: {self.data_days}天，RSI-6基于全量数据计算)")
             print()
 
             # 使用 tabulate 打印表格
@@ -497,7 +493,6 @@ class Screener:
                 "symbol": "代码",
                 "name": "名称",
                 "t0_date": "放量日",
-                "t0_close": "收盘价",
                 "volume_ratio": "放量倍数",
                 "up_days": "上涨天数",
                 "volatility": "波动率",
@@ -537,6 +532,7 @@ class Screener:
             last_three_slope, r_squared = calc_ma_slope_and_r2(closes, ma_period=5)
 
             if last_three_slope != 0.0 or r_squared != 0.0:
+                # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
                 result = {
@@ -545,10 +541,8 @@ class Screener:
                     "slope": round(last_three_slope, 4),
                     "r_squared": round(r_squared, 4),
                     "data_points": len(closes),
+                    "rsi_6": rsi,
                 }
-
-                if self.data_days >= 60:
-                    result["rsi_6"] = rsi
 
                 results.append(result)
 
@@ -574,8 +568,7 @@ class Screener:
             print("没有符合条件的股票")
         else:
             print(f"共找到 {len(top_10)} 只符合条件的股票（R²阈值: {r2_75th:.4f}）:")
-            if self.data_days >= 60:
-                print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
+            print(f"(数据天数: {self.data_days}天，RSI-6基于全量数据计算)")
             print()
 
             # 使用 tabulate 打印表格
