@@ -453,6 +453,32 @@ class Screener:
 
         return calc_rsi(closes, period=6)
 
+    def _get_recent_rsi_series(self, symbol: str, days: int = 5) -> list[float]:
+        """获取某只股票最近N天的RSI序列
+
+        Args:
+            symbol: 股票代码
+            days: 最近天数，默认5天
+
+        Returns:
+            RSI序列列表，如果数据不足返回空列表
+        """
+        symbol_df = self.history_df.filter(pl.col("symbol") == symbol)
+        if len(symbol_df) < 60:
+            return []
+
+        symbol_df = symbol_df.sort("trade_date")
+        closes = symbol_df["close"].to_list()
+
+        # 计算RSI序列
+        rsi_series = []
+        for i in range(len(closes) - 60 + 1):
+            rsi = calc_rsi(closes[i:i+60], period=6)
+            rsi_series.append(rsi)
+
+        # 返回最近days天的RSI
+        return rsi_series[-days:] if len(rsi_series) >= days else rsi_series
+
     def volume(self):
         """筛选成交量放大且后续收阳线的股票
 
@@ -558,6 +584,14 @@ class Screener:
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
+                # 检查近5天RSI是否有超过90的（过滤超买后回调的股票）
+                recent_rsi_series = self._get_recent_rsi_series(symbol, days=5)
+                has_extreme_rsi = any(r > 90 for r in recent_rsi_series if r > 0)
+
+                if has_extreme_rsi:
+                    logger.debug(f"{symbol} 近5天有RSI超过90，跳过")
+                    continue
+
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
@@ -584,7 +618,7 @@ class Screener:
         top_10 = filtered_results[:10]
 
         print("\n" + "=" * 80)
-        print("均线斜率筛选结果（5日均线，R²>=75%分位，前10支）")
+        print("均线斜率筛选结果（5日均线，R²>=75%分位，近5天RSI<=90，前10支）")
         print("=" * 80)
 
         if not top_10:
