@@ -504,13 +504,14 @@ class Screener:
         # 返回最近days天的RSI
         return rsi_series[-days:] if len(rsi_series) >= days else rsi_series
 
-    def volume(self):
+    def volume(self, log_level: str="INFO"):
         """筛选成交量放大且后续收阳线的股票
 
         筛选条件：
         - 存在某日成交量是之前5倍以上（t0日）
         - t0日之后都收阳线
         """
+        logger.level(log_level)
         logger.info("开始成交量放大筛选...")
         self._load_data()
 
