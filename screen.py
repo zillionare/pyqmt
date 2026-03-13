@@ -418,9 +418,6 @@ class Screener:
         Returns:
             RSI值，如果数据不足返回0.0
         """
-        if self.data_days < 60:
-            return 0.0
-
         symbol_df = self.history_df.filter(pl.col("symbol") == symbol)
         if len(symbol_df) < 7:
             return 0.0
@@ -446,7 +443,7 @@ class Screener:
 
         # 获取最近10天的数据用于筛选
         recent_dates = self.history_df['trade_date'].unique().sort()[-10:]
-        recent_df = self.history_df.filter(pl.col("trade_date").is_in(recent_dates))
+        recent_df = self.history_df.filter(pl.col("trade_date").is_in(pl.lit(recent_dates).implode()))
 
         logger.info(f"使用最近10天数据进行筛选: {recent_dates[0]} ~ {recent_dates[-1]}")
 
@@ -519,7 +516,7 @@ class Screener:
 
         # 获取最近15天的数据用于计算
         recent_dates = self.history_df['trade_date'].unique().sort()[-15:]
-        recent_df = self.history_df.filter(pl.col("trade_date").is_in(recent_dates))
+        recent_df = self.history_df.filter(pl.col("trade_date").is_in(pl.lit(recent_dates).implode()))
 
         logger.info(f"使用最近15天数据进行计算: {recent_dates[0]} ~ {recent_dates[-1]}")
 
