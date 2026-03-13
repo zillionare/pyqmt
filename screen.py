@@ -584,12 +584,12 @@ class Screener:
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
-                # 检查近5天RSI是否有超过90的（过滤超买后回调的股票）
-                recent_rsi_series = self._get_recent_rsi_series(symbol, days=5)
+                # 检查近4天RSI是否有超过90的（过滤超买后回调的股票）
+                recent_rsi_series = self._get_recent_rsi_series(symbol, days=4)
                 has_extreme_rsi = any(r > 90 for r in recent_rsi_series if r > 0)
 
                 if has_extreme_rsi:
-                    logger.debug(f"{symbol} 近5天有RSI超过90，跳过")
+                    logger.debug(f"{symbol} 近4天有RSI超过90，跳过")
                     continue
 
                 result = {
@@ -597,7 +597,6 @@ class Screener:
                     "name": self.stock_names.get(symbol, "未知"),
                     "slope": round(last_three_slope, 2),
                     "r_squared": round(r_squared, 2),
-                    "data_points": len(closes),
                     "rsi_6": rsi,
                 }
 
@@ -618,7 +617,7 @@ class Screener:
         top_10 = filtered_results[:10]
 
         print("\n" + "=" * 80)
-        print("均线斜率筛选结果（5日均线，R²>=75%分位，近5天RSI<=90，前10支）")
+        print("均线斜率筛选结果（5日均线，R²>=75%分位，近4天RSI<=90，前10支）")
         print("=" * 80)
 
         if not top_10:
@@ -635,7 +634,6 @@ class Screener:
                 "name": "名称",
                 "slope": "斜率",
                 "r_squared": "R²",
-                "data_points": "数据点",
                 "rsi_6": "RSI(6)",
             }
             df.columns = [headers.get(c, c) for c in df.columns]
