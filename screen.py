@@ -97,14 +97,14 @@ def get_trading_dates(pro, start_date: datetime.date, end_date: datetime.date) -
 def fetch_daily_data(pro, trade_date: datetime.date) -> pl.DataFrame:
     """获取单日全市场行情数据（前复权）
 
-    获取无复权数据 + 复权因子，计算前复权价格后存储
+    获取无复权数据 + 复权因子 + 换手率，计算前复权价格后存储
 
     Args:
         pro: tushare pro 接口
         trade_date: 交易日期
 
     Returns:
-        Polars DataFrame，包含前复权的 open, close, volume 等列
+        Polars DataFrame，包含前复权的 open, close, volume, turnover 等列
     """
     date_str = trade_date.strftime("%Y%m%d")
 
@@ -122,11 +122,23 @@ def fetch_daily_data(pro, trade_date: datetime.date) -> pl.DataFrame:
         else:
             adj_dict = dict(zip(df_adj['ts_code'].tolist(), df_adj['adj_factor'].tolist()))
 
+        # 获取换手率（从daily_basic接口）
+        try:
+            df_basic = pro.daily_basic(trade_date=date_str)
+            if df_basic is not None and not df_basic.empty:
+                turnover_dict = dict(zip(df_basic['ts_code'].tolist(), df_basic['turnover_rate'].tolist()))
+            else:
+                turnover_dict = {}
+        except Exception as e:
+            logger.warning(f"{trade_date} 获取换手率失败: {e}")
+            turnover_dict = {}
+
         # 合并数据并计算前复权价格
         records = []
         for _, row in df_daily.iterrows():
             ts_code = row['ts_code']
             adj_factor = adj_dict.get(ts_code, 1.0)
+            turnover = turnover_dict.get(ts_code, 0.0)
 
             records.append({
                 'symbol': ts_code,
@@ -136,7 +148,7 @@ def fetch_daily_data(pro, trade_date: datetime.date) -> pl.DataFrame:
                 'low': row['low'] * adj_factor,
                 'close': row['close'] * adj_factor,
                 'volume': row['vol'],
-                'turnover': row.get('turnover', 0.0),
+                'turnover': turnover,
                 'adj_factor': adj_factor,
             })
 
