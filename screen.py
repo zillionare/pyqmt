@@ -519,6 +519,11 @@ class Screener:
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
+                # 过滤最后一天RSI小于50的股票
+                if rsi < 50:
+                    logger.debug(f"{symbol} RSI={rsi:.2f} < 50，跳过")
+                    continue
+
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
@@ -590,6 +595,11 @@ class Screener:
             if last_slope != 0.0 or r_squared != 0.0:
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
+
+                # 过滤最后一天RSI小于50的股票
+                if rsi < 50:
+                    logger.debug(f"{symbol} RSI={rsi:.2f} < 50，跳过")
+                    continue
 
                 # 检查近3天RSI是否有超过90的（过滤超买后回调的股票）
                 recent_rsi_series = self._get_recent_rsi_series(symbol, days=3)
