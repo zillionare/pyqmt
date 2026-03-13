@@ -249,7 +249,9 @@ def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 60) 
 
 
 def calc_rsi(prices: list[float], period: int = 6) -> float:
-    """计算RSI指标
+    """计算RSI指标（使用Wilder平滑移动平均）
+
+    标准RSI计算使用Wilder's Smoothing，而非简单移动平均
 
     Args:
         prices: 价格列表（按时间顺序）
@@ -268,9 +270,15 @@ def calc_rsi(prices: list[float], period: int = 6) -> float:
     gains = [d if d > 0 else 0 for d in deltas]
     losses = [-d if d < 0 else 0 for d in deltas]
 
-    # 计算平均涨跌
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
+    # 使用Wilder平滑移动平均计算RSI
+    # 第一个平均增益/损失使用简单平均
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    # 后续使用平滑移动平均
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
 
     if avg_loss == 0:
         return 100.0
