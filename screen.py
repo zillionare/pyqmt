@@ -4,6 +4,11 @@
 1. volume: 筛选成交量放大且后续收阳线的股票
 2. slope: 计算5日均线斜率和决定系数
 
+数据缓存：
+- 默认缓存路径：/tmp/screen.pq
+- 使用前复权数据（获取时带复权因子，存储前复权价格）
+- 自动补齐缓存数据到最新日期
+
 用法：
     python screen.py volume
     python screen.py slope
@@ -11,53 +16,129 @@
 
 import datetime
 import time
+from pathlib import Path
 from typing import Optional
 
 import fire
 import numpy as np
+import pandas as pd
 import polars as pl
 import tushare as ts
 from loguru import logger
 
+# 默认缓存路径
+DEFAULT_CACHE_PATH = "/tmp/screen.pq"
 
-def fetch_history_data(pro, trade_date: datetime.date) -> pl.DataFrame:
-    """获取单日全市场行情数据
+
+def load_cached_data(cache_path: str = DEFAULT_CACHE_PATH) -> pl.DataFrame:
+    """加载缓存数据
+
+    Args:
+        cache_path: 缓存文件路径
+
+    Returns:
+        缓存的DataFrame，如果没有缓存返回空DataFrame
+    """
+    cache_file = Path(cache_path)
+    if not cache_file.exists():
+        logger.info(f"缓存文件不存在: {cache_path}")
+        return pl.DataFrame()
+
+    try:
+        df = pl.read_parquet(cache_path)
+        logger.info(f"加载缓存数据: {len(df)} 条记录，日期范围: {df['trade_date'].min()} ~ {df['trade_date'].max()}")
+        return df
+    except Exception as e:
+        logger.error(f"加载缓存数据失败: {e}")
+        return pl.DataFrame()
+
+
+def save_cached_data(df: pl.DataFrame, cache_path: str = DEFAULT_CACHE_PATH):
+    """保存数据到缓存
+
+    Args:
+        df: 要保存的DataFrame
+        cache_path: 缓存文件路径
+    """
+    try:
+        df.write_parquet(cache_path)
+        logger.info(f"数据已保存到缓存: {cache_path}，共 {len(df)} 条记录")
+    except Exception as e:
+        logger.error(f"保存缓存数据失败: {e}")
+
+
+def get_trading_dates(pro, start_date: datetime.date, end_date: datetime.date) -> list[datetime.date]:
+    """获取交易日列表（排除周末节假日）
+
+    Args:
+        pro: tushare pro 接口
+        start_date: 开始日期
+        end_date: 结束日期
+
+    Returns:
+        交易日列表
+    """
+    df_trade_cal = pro.trade_cal(
+        start_date=start_date.strftime("%Y%m%d"),
+        end_date=end_date.strftime("%Y%m%d"),
+        is_open=1
+    )
+
+    if df_trade_cal is None or df_trade_cal.empty:
+        return []
+
+    return [
+        datetime.datetime.strptime(d, "%Y%m%d").date()
+        for d in df_trade_cal["cal_date"].tolist()
+    ]
+
+
+def fetch_daily_data(pro, trade_date: datetime.date) -> pl.DataFrame:
+    """获取单日全市场行情数据（前复权）
+
+    获取无复权数据 + 复权因子，计算前复权价格后存储
 
     Args:
         pro: tushare pro 接口
         trade_date: 交易日期
 
     Returns:
-        Polars DataFrame，包含 open, close, volume 等列
+        Polars DataFrame，包含前复权的 open, close, volume 等列
     """
     date_str = trade_date.strftime("%Y%m%d")
 
     try:
-        df_pd = pro.daily(trade_date=date_str)
-        if df_pd is None or df_pd.empty:
+        # 获取无复权日线数据
+        df_daily = pro.daily(trade_date=date_str)
+        if df_daily is None or df_daily.empty:
             return pl.DataFrame()
 
-        df = pl.from_pandas(df_pd)
+        # 获取复权因子
+        df_adj = pro.adj_factor(trade_date=date_str)
+        if df_adj is None or df_adj.empty:
+            logger.warning(f"{trade_date} 未获取到复权因子，使用无复权数据")
+            adj_dict = {}
+        else:
+            adj_dict = dict(zip(df_adj['ts_code'].tolist(), df_adj['adj_factor'].tolist()))
 
-        # 统一列名
-        df = df.rename({
-            "ts_code": "symbol",
-            "open": "open",
-            "close": "close",
-            "high": "high",
-            "low": "low",
-            "vol": "volume",
-        })
+        # 合并数据并计算前复权价格
+        records = []
+        for _, row in df_daily.iterrows():
+            ts_code = row['ts_code']
+            adj_factor = adj_dict.get(ts_code, 1.0)
 
-        # 添加日期列
-        df = df.with_columns(
-            pl.lit(trade_date).alias("trade_date")
-        )
+            records.append({
+                'symbol': ts_code,
+                'trade_date': trade_date,
+                'open': row['open'] * adj_factor,
+                'high': row['high'] * adj_factor,
+                'low': row['low'] * adj_factor,
+                'close': row['close'] * adj_factor,
+                'volume': row['vol'],
+                'adj_factor': adj_factor,
+            })
 
-        # 选择需要的列
-        df = df.select(["symbol", "trade_date", "open", "close", "volume"])
-
-        return df
+        return pl.DataFrame(records)
 
     except Exception as e:
         logger.error(f"获取 {trade_date} 数据失败: {e}")
@@ -85,51 +166,103 @@ def fetch_stock_names(pro) -> dict[str, str]:
         return {}
 
 
-def fetch_last_n_days(pro, n: int = 10) -> tuple[pl.DataFrame, dict[str, str]]:
-    """获取过去N个交易日的全市场数据
+def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH) -> pl.DataFrame:
+    """更新缓存数据
+
+    检查缓存中的最大日期，补齐到今天为止的数据差
 
     Args:
         pro: tushare pro 接口
-        n: 交易日数量
+        cache_path: 缓存文件路径
 
     Returns:
-        (合并后的 DataFrame, symbol->name 字典)
+        更新后的完整DataFrame
     """
-    # 获取股票名称映射
-    stock_names = fetch_stock_names(pro)
-    logger.info(f"获取到 {len(stock_names)} 只股票的基本信息")
+    # 加载现有缓存
+    cached_df = load_cached_data(cache_path)
 
-    # 获取最近N个交易日
     today = datetime.date.today()
-    start_date = today - datetime.timedelta(days=n * 2)  # 多取一些，过滤周末节假日
 
-    df_trade_cal = pro.trade_cal(
-        start_date=start_date.strftime("%Y%m%d"),
-        end_date=today.strftime("%Y%m%d"),
-        is_open=1
-    )
+    if cached_df.is_empty():
+        # 没有缓存，获取最近60天数据
+        logger.info("没有缓存数据，获取最近60天数据...")
+        start_date = today - datetime.timedelta(days=90)  # 多取一些，过滤节假日
+        trading_dates = get_trading_dates(pro, start_date, today)
+        # 取最近60个交易日
+        dates_to_fetch = trading_dates[-60:] if len(trading_dates) > 60 else trading_dates
+    else:
+        # 有缓存，获取缓存最大日期之后的数据
+        max_date = cached_df['trade_date'].max()
+        logger.info(f"缓存最大日期: {max_date}")
 
-    if df_trade_cal is None or df_trade_cal.empty:
-        return pl.DataFrame(), stock_names
+        if max_date >= today:
+            logger.info("缓存数据已是最新")
+            return cached_df
 
-    trade_dates = [
-        datetime.datetime.strptime(d, "%Y%m%d").date()
-        for d in df_trade_cal["cal_date"].tolist()[-n:]  # 取最近N个交易日
-    ]
+        # 获取需要补齐的交易日
+        dates_to_fetch = get_trading_dates(pro, max_date + datetime.timedelta(days=1), today)
+        logger.info(f"需要补齐 {len(dates_to_fetch)} 个交易日: {dates_to_fetch}")
 
-    logger.info(f"将获取以下交易日的数据: {trade_dates}")
-
-    all_data = []
-    for trade_date in trade_dates:
-        df = fetch_history_data(pro, trade_date)
+    # 获取缺失的数据
+    new_data = []
+    for trade_date in dates_to_fetch:
+        df = fetch_daily_data(pro, trade_date)
         if not df.is_empty():
-            all_data.append(df)
+            new_data.append(df)
         time.sleep(0.1)  # 避免请求过快
 
-    if not all_data:
-        return pl.DataFrame(), stock_names
+    if not new_data:
+        logger.info("没有新数据需要添加")
+        return cached_df
 
-    return pl.concat(all_data), stock_names
+    # 合并新数据
+    new_df = pl.concat(new_data)
+    logger.info(f"获取到新数据: {len(new_df)} 条记录")
+
+    if cached_df.is_empty():
+        combined_df = new_df
+    else:
+        # 合并并去重
+        combined_df = pl.concat([cached_df, new_df])
+        combined_df = combined_df.unique(subset=['symbol', 'trade_date'])
+
+    # 保存到缓存
+    save_cached_data(combined_df, cache_path)
+
+    return combined_df
+
+
+def calc_rsi(prices: list[float], period: int = 6) -> float:
+    """计算RSI指标
+
+    Args:
+        prices: 价格列表（按时间顺序）
+        period: RSI周期，默认6
+
+    Returns:
+        RSI值（0-100）
+    """
+    if len(prices) < period + 1:
+        return 0.0
+
+    # 计算涨跌幅
+    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+
+    # 分离上涨和下跌
+    gains = [d if d > 0 else 0 for d in deltas]
+    losses = [-d if d < 0 else 0 for d in deltas]
+
+    # 计算平均涨跌
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = sum(losses[-period:]) / period
+
+    if avg_loss == 0:
+        return 100.0
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+
+    return round(rsi, 2)
 
 
 def check_volume_spike(df: pl.DataFrame, symbol: str) -> tuple[bool, datetime.date | None, float]:
@@ -144,23 +277,19 @@ def check_volume_spike(df: pl.DataFrame, symbol: str) -> tuple[bool, datetime.da
     Returns:
         (是否存在, t0日期, 放大倍数)
     """
-    # 按日期排序
     df = df.sort("trade_date")
 
     if len(df) < 2:
         return False, None, 0.0
 
-    # 转换为列表便于索引
     data = df.to_dicts()
 
-    # 从第2天开始检查（需要有前一天的数据做比较）
     for i in range(1, len(data)):
         prev_day = data[i - 1]
         curr_day = data[i]
 
-        # 检查前一日是否是一字板（open == close）
         if prev_day["open"] == prev_day["close"]:
-            continue  # 跳过虚假信号
+            continue
 
         if prev_day["volume"] == 0:
             continue
@@ -183,14 +312,11 @@ def check_consecutive_yang(df: pl.DataFrame, t0_date: datetime.date) -> bool:
         是否都收阳线
     """
     df = df.sort("trade_date")
-
-    # 获取 t0 日之后的数据（不包括 t0 日）
     df_after = df.filter(pl.col("trade_date") > t0_date)
 
     if df_after.is_empty():
         return False
 
-    # 检查每一天是否收阳线（close > open）
     for row in df_after.iter_rows(named=True):
         if row["close"] <= row["open"]:
             return False
@@ -210,12 +336,10 @@ def calc_volatility(df: pl.DataFrame) -> float:
     if len(df) < 2:
         return 0.0
 
-    # 按日期排序
     df = df.sort("trade_date")
-
-    # 计算每日收益率: (close_t / close_{t-1}) - 1
     closes = df["close"].to_list()
     returns = []
+
     for i in range(1, len(closes)):
         if closes[i - 1] > 0:
             daily_return = (closes[i] / closes[i - 1]) - 1
@@ -224,7 +348,6 @@ def calc_volatility(df: pl.DataFrame) -> float:
     if len(returns) < 2:
         return 0.0
 
-    # 计算标准差
     import statistics
     return round(statistics.stdev(returns), 2)
 
@@ -242,31 +365,25 @@ def calc_ma_slope_and_r2(closes: list[float], ma_period: int = 5) -> tuple[float
     if len(closes) < ma_period + 1:
         return 0.0, 0.0
 
-    # 计算MA
     ma_values = []
     for i in range(ma_period - 1, len(closes)):
         ma = sum(closes[i - ma_period + 1:i + 1]) / ma_period
         ma_values.append(ma)
 
-    # 需要至少6个MA点（5日均线需要6个有效数据点）
     if len(ma_values) < 6:
         return 0.0, 0.0
 
-    # 取最后6个MA点
     x = np.arange(len(ma_values))
     y = np.array(ma_values)
 
-    # 线性回归计算斜率和R²
     coeffs = np.polyfit(x, y, 1)
     slope = coeffs[0]
 
-    # 计算R²
     y_pred = np.polyval(coeffs, x)
     ss_res = np.sum((y - y_pred) ** 2)
     ss_tot = np.sum((y - np.mean(y)) ** 2)
     r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
 
-    # 计算最后三点斜率
     last_three_slope = (ma_values[-1] - ma_values[-3]) / 2
 
     return last_three_slope, r_squared
@@ -275,8 +392,42 @@ def calc_ma_slope_and_r2(closes: list[float], ma_period: int = 5) -> tuple[float
 class Screener:
     """股票筛选器"""
 
-    def __init__(self):
+    def __init__(self, cache_path: str = DEFAULT_CACHE_PATH):
         self.pro = ts.pro_api()
+        self.cache_path = cache_path
+        self.history_df = pl.DataFrame()
+        self.stock_names = {}
+        self.data_days = 0  # 数据天数
+
+    def _load_data(self):
+        """加载数据（从缓存或更新）"""
+        self.history_df = update_cache(self.pro, self.cache_path)
+        self.stock_names = fetch_stock_names(self.pro)
+
+        if not self.history_df.is_empty():
+            self.data_days = len(self.history_df['trade_date'].unique())
+            logger.info(f"数据加载完成: {self.data_days} 天，{self.history_df['symbol'].n_unique()} 只股票")
+
+    def _get_rsi_for_symbol(self, symbol: str) -> float:
+        """获取某只股票的RSI(6)
+
+        Args:
+            symbol: 股票代码
+
+        Returns:
+            RSI值，如果数据不足返回0.0
+        """
+        if self.data_days < 60:
+            return 0.0
+
+        symbol_df = self.history_df.filter(pl.col("symbol") == symbol)
+        if len(symbol_df) < 7:
+            return 0.0
+
+        symbol_df = symbol_df.sort("trade_date")
+        closes = symbol_df["close"].to_list()
+
+        return calc_rsi(closes, period=6)
 
     def volume(self):
         """筛选成交量放大且后续收阳线的股票
@@ -286,46 +437,47 @@ class Screener:
         - t0日之后都收阳线
         """
         logger.info("开始成交量放大筛选...")
+        self._load_data()
 
-        # 获取历史数据
-        history_df, stock_names = fetch_last_n_days(self.pro, n=10)
-
-        if history_df.is_empty():
+        if self.history_df.is_empty():
             logger.error("未能获取历史数据")
             return
 
-        logger.info(f"获取到 {history_df['symbol'].n_unique()} 只股票的历史数据")
+        # 获取最近10天的数据用于筛选
+        recent_dates = self.history_df['trade_date'].unique().sort()[-10:]
+        recent_df = self.history_df.filter(pl.col("trade_date").is_in(recent_dates))
 
-        # 筛选股票
+        logger.info(f"使用最近10天数据进行筛选: {recent_dates[0]} ~ {recent_dates[-1]}")
+
         results = []
-        for symbol in history_df["symbol"].unique():
-            symbol_df = history_df.filter(pl.col("symbol") == symbol)
+        for symbol in recent_df["symbol"].unique():
+            symbol_df = recent_df.filter(pl.col("symbol") == symbol)
 
-            # 检查成交量放大
             has_spike, t0_date, ratio = check_volume_spike(symbol_df, symbol)
 
             if not has_spike or t0_date is None:
                 continue
 
-            # 检查 t0 日后是否都收阳线
             if check_consecutive_yang(symbol_df, t0_date):
-                # 获取 t0 日的数据
                 t0_data = symbol_df.filter(pl.col("trade_date") == t0_date).row(0, named=True)
-
-                # 计算波动率
                 volatility = calc_volatility(symbol_df)
+                rsi = self._get_rsi_for_symbol(symbol)
 
-                results.append({
+                result = {
                     "symbol": symbol,
-                    "name": stock_names.get(symbol, "未知"),
+                    "name": self.stock_names.get(symbol, "未知"),
                     "t0_date": t0_date,
-                    "t0_close": t0_data["close"],
+                    "t0_close": round(t0_data["close"], 2),
                     "volume_ratio": round(ratio, 2),
                     "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
                     "volatility": volatility,
-                })
+                }
 
-        # 打印结果
+                if self.data_days >= 60:
+                    result["rsi_6"] = rsi
+
+                results.append(result)
+
         print("\n" + "=" * 80)
         print("成交量放大筛选结果")
         print("=" * 80)
@@ -334,7 +486,10 @@ class Screener:
             print("没有符合条件的股票")
         else:
             result_df = pl.DataFrame(results)
-            print(f"共找到 {len(results)} 只符合条件的股票:\n")
+            print(f"共找到 {len(results)} 只符合条件的股票:")
+            if self.data_days >= 60:
+                print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
+            print()
             print(result_df.to_pandas().to_string(index=False))
 
         print("=" * 80)
@@ -347,58 +502,56 @@ class Screener:
         最多输出前10支。
         """
         logger.info("开始均线斜率筛选...")
+        self._load_data()
 
-        # 获取历史数据（需要至少10天来计算5日均线）
-        history_df, stock_names = fetch_last_n_days(self.pro, n=15)
-
-        if history_df.is_empty():
+        if self.history_df.is_empty():
             logger.error("未能获取历史数据")
             return
 
-        logger.info(f"获取到 {history_df['symbol'].n_unique()} 只股票的历史数据")
+        # 获取最近15天的数据用于计算
+        recent_dates = self.history_df['trade_date'].unique().sort()[-15:]
+        recent_df = self.history_df.filter(pl.col("trade_date").is_in(recent_dates))
 
-        # 计算每只股票的数据
+        logger.info(f"使用最近15天数据进行计算: {recent_dates[0]} ~ {recent_dates[-1]}")
+
         results = []
-        for symbol in history_df["symbol"].unique():
-            symbol_df = history_df.filter(pl.col("symbol") == symbol)
-
-            # 按日期排序获取收盘价
+        for symbol in recent_df["symbol"].unique():
+            symbol_df = recent_df.filter(pl.col("symbol") == symbol)
             symbol_df = symbol_df.sort("trade_date")
             closes = symbol_df["close"].to_list()
 
-            # 计算5日均线斜率和R²
             last_three_slope, r_squared = calc_ma_slope_and_r2(closes, ma_period=5)
 
-            # 只保留有有效数据的股票
             if last_three_slope != 0.0 or r_squared != 0.0:
-                results.append({
+                rsi = self._get_rsi_for_symbol(symbol)
+
+                result = {
                     "symbol": symbol,
-                    "name": stock_names.get(symbol, "未知"),
+                    "name": self.stock_names.get(symbol, "未知"),
                     "slope": round(last_three_slope, 4),
                     "r_squared": round(r_squared, 4),
                     "data_points": len(closes),
-                })
+                }
+
+                if self.data_days >= 60:
+                    result["rsi_6"] = rsi
+
+                results.append(result)
 
         if not results:
             print("没有符合条件的股票")
             return
 
-        # 按斜率由高到低排序
         results.sort(key=lambda x: x["slope"], reverse=True)
 
-        # 计算R²的75%分位
         r2_values = [r["r_squared"] for r in results]
         r2_75th = np.percentile(r2_values, 75)
 
         logger.info(f"R² 75%分位: {r2_75th:.4f}")
 
-        # 过滤掉R²低于75%分位的
         filtered_results = [r for r in results if r["r_squared"] >= r2_75th]
-
-        # 只取前10支
         top_10 = filtered_results[:10]
 
-        # 打印结果
         print("\n" + "=" * 80)
         print("均线斜率筛选结果（5日均线，R²>=75%分位，前10支）")
         print("=" * 80)
@@ -407,7 +560,10 @@ class Screener:
             print("没有符合条件的股票")
         else:
             result_df = pl.DataFrame(top_10)
-            print(f"共找到 {len(top_10)} 只符合条件的股票（R²阈值: {r2_75th:.4f}）:\n")
+            print(f"共找到 {len(top_10)} 只符合条件的股票（R²阈值: {r2_75th:.4f}）:")
+            if self.data_days >= 60:
+                print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
+            print()
             print(result_df.to_pandas().to_string(index=False))
 
         print("=" * 80)
