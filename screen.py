@@ -524,7 +524,6 @@ class Screener:
                     logger.debug(f"{symbol} 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
                     continue
 
-                volatility = calc_volatility(symbol_df)
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
@@ -533,13 +532,17 @@ class Screener:
                     logger.debug(f"{symbol} RSI={rsi:.2f} < 50，跳过")
                     continue
 
+                # 获取放量当天的换手率
+                t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
+                turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
+
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
                     "t0_date": t0_date.strftime("%Y-%m-%d") if hasattr(t0_date, 'strftime') else str(t0_date)[:10],
                     "volume_ratio": round(ratio, 2),
                     "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
-                    "volatility": volatility,
+                    "turnover": round(turnover, 2),
                     "rsi_6": rsi,
                 }
 
@@ -564,7 +567,7 @@ class Screener:
                 "t0_date": "放量日",
                 "volume_ratio": "放量倍数",
                 "up_days": "上涨天数",
-                "volatility": "波动率",
+                "turnover": "换手率",
                 "rsi_6": "RSI(6)",
             }
             df.columns = [headers.get(c, c) for c in df.columns]
