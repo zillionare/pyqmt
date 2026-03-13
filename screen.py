@@ -168,7 +168,7 @@ def fetch_stock_names(pro) -> dict[str, str]:
         return {}
 
 
-def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 60) -> pl.DataFrame:
+def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 70) -> pl.DataFrame:
     """更新缓存数据
 
     检查缓存中的日期范围，补齐数据以满足最少天数要求
@@ -176,7 +176,7 @@ def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 60) 
     Args:
         pro: tushare pro 接口
         cache_path: 缓存文件路径
-        min_days: 最少需要的数据天数，默认60天
+        min_days: 最少需要的数据天数，默认70天（确保RSI计算准确）
 
     Returns:
         更新后的完整DataFrame
@@ -445,6 +445,7 @@ class Screener:
         """获取某只股票的RSI(6)
 
         RSI需要至少60天数据才能准确计算（递归计算，早期数据不稳定）
+        默认获取70天数据以确保RSI计算准确
 
         Args:
             symbol: 股票代码
@@ -453,7 +454,7 @@ class Screener:
             RSI值，如果数据不足返回0.0
         """
         symbol_df = self.history_df.filter(pl.col("symbol") == symbol)
-        # 需要至少60天数据才计算RSI
+        # 需要至少60天数据才计算RSI（默认获取70天以确保准确）
         if len(symbol_df) < 60:
             return 0.0
 
@@ -524,7 +525,7 @@ class Screener:
                     logger.debug(f"{symbol} 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
                     continue
 
-                # RSI使用全量数据计算（60天）
+                # RSI使用全量数据计算（默认70天以确保准确）
                 rsi = self._get_rsi_for_symbol(symbol)
 
                 # 过滤最后一天RSI小于50的股票
@@ -605,7 +606,7 @@ class Screener:
             last_slope, r_squared = calc_ma_slope_and_r2(closes, ma_period=10, slope_days=5, r2_days=10)
 
             if last_slope != 0.0 or r_squared != 0.0:
-                # RSI使用全量数据计算（60天）
+                # RSI使用全量数据计算（默认70天以确保准确）
                 rsi = self._get_rsi_for_symbol(symbol)
 
                 # 过滤最后一天RSI小于50的股票
