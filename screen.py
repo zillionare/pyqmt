@@ -25,6 +25,7 @@ import pandas as pd
 import polars as pl
 import tushare as ts
 from loguru import logger
+from tabulate import tabulate
 
 # 默认缓存路径
 DEFAULT_CACHE_PATH = "/tmp/screen.pq"
@@ -485,12 +486,25 @@ class Screener:
         if not results:
             print("没有符合条件的股票")
         else:
-            result_df = pl.DataFrame(results)
             print(f"共找到 {len(results)} 只符合条件的股票:")
             if self.data_days >= 60:
                 print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
             print()
-            print(result_df.to_pandas().to_string(index=False))
+
+            # 使用 tabulate 打印表格
+            df = pl.DataFrame(results).to_pandas()
+            headers = {
+                "symbol": "代码",
+                "name": "名称",
+                "t0_date": "放量日",
+                "t0_close": "收盘价",
+                "volume_ratio": "放量倍数",
+                "up_days": "上涨天数",
+                "volatility": "波动率",
+                "rsi_6": "RSI(6)",
+            }
+            df.columns = [headers.get(c, c) for c in df.columns]
+            print(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
 
         print("=" * 80)
 
@@ -559,12 +573,23 @@ class Screener:
         if not top_10:
             print("没有符合条件的股票")
         else:
-            result_df = pl.DataFrame(top_10)
             print(f"共找到 {len(top_10)} 只符合条件的股票（R²阈值: {r2_75th:.4f}）:")
             if self.data_days >= 60:
                 print(f"(数据天数: {self.data_days}天，已计算RSI-6)")
             print()
-            print(result_df.to_pandas().to_string(index=False))
+
+            # 使用 tabulate 打印表格
+            df = pl.DataFrame(top_10).to_pandas()
+            headers = {
+                "symbol": "代码",
+                "name": "名称",
+                "slope": "斜率",
+                "r_squared": "R²",
+                "data_points": "数据点",
+                "rsi_6": "RSI(6)",
+            }
+            df.columns = [headers.get(c, c) for c in df.columns]
+            print(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
 
         print("=" * 80)
 
