@@ -561,8 +561,8 @@ class Screener:
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
-                    "slope": round(last_three_slope, 4),
-                    "r_squared": round(r_squared, 4),
+                    "slope": round(last_three_slope, 2),
+                    "r_squared": round(r_squared, 2),
                     "data_points": len(closes),
                     "rsi_6": rsi,
                 }
