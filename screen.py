@@ -167,14 +167,15 @@ def fetch_stock_names(pro) -> dict[str, str]:
         return {}
 
 
-def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH) -> pl.DataFrame:
+def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 60) -> pl.DataFrame:
     """更新缓存数据
 
-    检查缓存中的最大日期，补齐到今天为止的数据差
+    检查缓存中的日期范围，补齐数据以满足最少天数要求
 
     Args:
         pro: tushare pro 接口
         cache_path: 缓存文件路径
+        min_days: 最少需要的数据天数，默认60天
 
     Returns:
         更新后的完整DataFrame
@@ -185,24 +186,38 @@ def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH) -> pl.DataFrame:
     today = datetime.date.today()
 
     if cached_df.is_empty():
-        # 没有缓存，获取最近60天数据
-        logger.info("没有缓存数据，获取最近60天数据...")
-        start_date = today - datetime.timedelta(days=90)  # 多取一些，过滤节假日
+        # 没有缓存，获取最近min_days天数据
+        logger.info(f"没有缓存数据，获取最近{min_days}天数据...")
+        start_date = today - datetime.timedelta(days=min_days + 30)  # 多取一些，过滤节假日
         trading_dates = get_trading_dates(pro, start_date, today)
-        # 取最近60个交易日
-        dates_to_fetch = trading_dates[-60:] if len(trading_dates) > 60 else trading_dates
+        # 取最近min_days个交易日
+        dates_to_fetch = trading_dates[-min_days:] if len(trading_dates) > min_days else trading_dates
     else:
-        # 有缓存，获取缓存最大日期之后的数据
+        # 有缓存，检查日期范围
         max_date = cached_df['trade_date'].max()
-        logger.info(f"缓存最大日期: {max_date}")
+        min_date = cached_df['trade_date'].min()
+        current_days = len(cached_df['trade_date'].unique())
+        logger.info(f"缓存日期范围: {min_date} ~ {max_date}，共 {current_days} 天")
 
-        if max_date >= today:
-            logger.info("缓存数据已是最新")
-            return cached_df
+        dates_to_fetch = []
 
-        # 获取需要补齐的交易日
-        dates_to_fetch = get_trading_dates(pro, max_date + datetime.timedelta(days=1), today)
-        logger.info(f"需要补齐 {len(dates_to_fetch)} 个交易日: {dates_to_fetch}")
+        # 向后补齐：获取缓存最大日期之后的数据
+        if max_date < today:
+            forward_dates = get_trading_dates(pro, max_date + datetime.timedelta(days=1), today)
+            dates_to_fetch.extend(forward_dates)
+            logger.info(f"需要向后补齐 {len(forward_dates)} 个交易日")
+
+        # 向前补齐：如果数据不足min_days天，往前补
+        if current_days < min_days:
+            need_more = min_days - current_days + 5  # 多补5天
+            logger.info(f"数据不足{min_days}天，需要向前补齐 {need_more} 个交易日")
+            # 从当前最小日期往前推
+            start_date = min_date - datetime.timedelta(days=need_more + 10)  # 多取一些
+            backward_dates = get_trading_dates(pro, start_date, min_date - datetime.timedelta(days=1))
+            # 取最后need_more天
+            backward_dates = backward_dates[-need_more:] if len(backward_dates) > need_more else backward_dates
+            dates_to_fetch.extend(backward_dates)
+            logger.info(f"向前补齐的日期: {backward_dates}")
 
     # 获取缺失的数据
     new_data = []
