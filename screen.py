@@ -412,6 +412,8 @@ class Screener:
     def _get_rsi_for_symbol(self, symbol: str) -> float:
         """获取某只股票的RSI(6)
 
+        RSI需要至少60天数据才能准确计算（递归计算，早期数据不稳定）
+
         Args:
             symbol: 股票代码
 
@@ -419,7 +421,8 @@ class Screener:
             RSI值，如果数据不足返回0.0
         """
         symbol_df = self.history_df.filter(pl.col("symbol") == symbol)
-        if len(symbol_df) < 7:
+        # 需要至少60天数据才计算RSI
+        if len(symbol_df) < 60:
             return 0.0
 
         symbol_df = symbol_df.sort("trade_date")
