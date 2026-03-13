@@ -136,6 +136,7 @@ def fetch_daily_data(pro, trade_date: datetime.date) -> pl.DataFrame:
                 'low': row['low'] * adj_factor,
                 'close': row['close'] * adj_factor,
                 'volume': row['vol'],
+                'turnover': row.get('turnover', 0.0),
                 'adj_factor': adj_factor,
             })
 
@@ -325,27 +326,29 @@ def check_volume_spike(df: pl.DataFrame, symbol: str) -> tuple[bool, datetime.da
     return False, None, 0.0
 
 
-def check_consecutive_yang(df: pl.DataFrame, t0_date: datetime.date) -> bool:
-    """检查 t0 日之后是否都收阳线
+def check_consecutive_yang(df: pl.DataFrame, t0_date: datetime.date) -> tuple[bool, float]:
+    """检查 t0 日之后是否都收阳线，并返回放量后的最小成交量
 
     Args:
         df: 单个股票的数据
         t0_date: 成交量放大日
 
     Returns:
-        是否都收阳线
+        (是否都收阳线, 放量后最小成交量)
     """
     df = df.sort("trade_date")
     df_after = df.filter(pl.col("trade_date") > t0_date)
 
     if df_after.is_empty():
-        return False
+        return False, 0.0
 
+    min_volume = float('inf')
     for row in df_after.iter_rows(named=True):
         if row["close"] <= row["open"]:
-            return False
+            return False, 0.0
+        min_volume = min(min_volume, row.get("volume", 0))
 
-    return True
+    return True, min_volume
 
 
 def calc_volatility(df: pl.DataFrame) -> float:
@@ -514,7 +517,13 @@ class Screener:
             if not has_spike or t0_date is None:
                 continue
 
-            if check_consecutive_yang(symbol_df, t0_date):
+            is_yang, min_volume_after = check_consecutive_yang(symbol_df, t0_date)
+            if is_yang:
+                # 过滤放量后成交量小于5的股票（单位：万手）
+                if min_volume_after < 5:
+                    logger.debug(f"{symbol} 放量后最小成交量={min_volume_after:.2f} < 5，跳过")
+                    continue
+
                 volatility = calc_volatility(symbol_df)
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
