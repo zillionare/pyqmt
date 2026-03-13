@@ -321,7 +321,7 @@ class Screener:
                     "t0_date": t0_date,
                     "t0_close": t0_data["close"],
                     "volume_ratio": round(ratio, 2),
-                    "days_after": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
+                    "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
                     "volatility": volatility,
                 })
 
