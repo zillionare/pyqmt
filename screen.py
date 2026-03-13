@@ -376,15 +376,17 @@ def calc_volatility(df: pl.DataFrame) -> float:
     return round(statistics.stdev(returns), 2)
 
 
-def calc_ma_slope_and_r2(closes: list[float], ma_period: int = 5) -> tuple[float, float]:
-    """计算均线最后三点斜率和决定系数
+def calc_ma_slope_and_r2(closes: list[float], ma_period: int = 10, slope_days: int = 5, r2_days: int = 10) -> tuple[float, float]:
+    """计算均线斜率和决定系数
 
     Args:
         closes: 收盘价列表（按时间顺序）
-        ma_period: 均线周期，默认5日
+        ma_period: 均线周期，默认10日
+        slope_days: 计算斜率的天数，默认最后5天
+        r2_days: 计算R²的天数，默认最后10天
 
     Returns:
-        (最后三点斜率, 决定系数R²)
+        (最后slope_days天斜率, 最后r2_days天R²)
     """
     if len(closes) < ma_period + 1:
         return 0.0, 0.0
@@ -394,23 +396,27 @@ def calc_ma_slope_and_r2(closes: list[float], ma_period: int = 5) -> tuple[float
         ma = sum(closes[i - ma_period + 1:i + 1]) / ma_period
         ma_values.append(ma)
 
-    if len(ma_values) < 6:
+    # 需要至少 ma_period + r2_days 个MA点
+    if len(ma_values) < r2_days:
         return 0.0, 0.0
 
-    x = np.arange(len(ma_values))
-    y = np.array(ma_values)
+    # 取最后r2_days个MA点计算R²
+    ma_for_r2 = ma_values[-r2_days:]
+    x = np.arange(len(ma_for_r2))
+    y = np.array(ma_for_r2)
 
     coeffs = np.polyfit(x, y, 1)
-    slope = coeffs[0]
 
     y_pred = np.polyval(coeffs, x)
     ss_res = np.sum((y - y_pred) ** 2)
     ss_tot = np.sum((y - np.mean(y)) ** 2)
     r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
 
-    last_three_slope = (ma_values[-1] - ma_values[-3]) / 2
+    # 计算最后slope_days天的斜率
+    ma_for_slope = ma_values[-slope_days:]
+    last_slope = (ma_for_slope[-1] - ma_for_slope[0]) / (slope_days - 1) if slope_days > 1 else 0.0
 
-    return last_three_slope, r_squared
+    return last_slope, r_squared
 
 
 class Screener:
@@ -553,10 +559,11 @@ class Screener:
         print("=" * 80)
 
     def slope(self):
-        """计算5日均线斜率和决定系数
+        """计算10日均线斜率和决定系数
 
-        取最近10天数据，计算5日均线（6个有效数据点），
-        按最后三点斜率由高到低排序，过滤掉决定系数低于75%分位的，
+        取最近20天数据，计算10日均线，
+        按最后5天斜率由高到低排序，过滤掉最后10天决定系数低于75%分位的，
+        过滤近3天RSI超过90的（避免超买回调），
         最多输出前10支。
         """
         logger.info("开始均线斜率筛选...")
@@ -566,11 +573,11 @@ class Screener:
             logger.error("未能获取历史数据")
             return
 
-        # 获取最近15天的数据用于计算
-        recent_dates = self.history_df['trade_date'].unique().sort()[-15:]
+        # 获取最近20天的数据用于计算（10日均线+10天R²需要至少20天数据）
+        recent_dates = self.history_df['trade_date'].unique().sort()[-20:]
         recent_df = self.history_df.filter(pl.col("trade_date").is_in(pl.lit(recent_dates).implode()))
 
-        logger.info(f"使用最近15天数据进行计算: {recent_dates[0]} ~ {recent_dates[-1]}")
+        logger.info(f"使用最近20天数据进行计算: {recent_dates[0]} ~ {recent_dates[-1]}")
 
         results = []
         for symbol in recent_df["symbol"].unique():
@@ -578,24 +585,23 @@ class Screener:
             symbol_df = symbol_df.sort("trade_date")
             closes = symbol_df["close"].to_list()
 
-            last_three_slope, r_squared = calc_ma_slope_and_r2(closes, ma_period=5)
+            last_slope, r_squared = calc_ma_slope_and_r2(closes, ma_period=10, slope_days=5, r2_days=10)
 
-            if last_three_slope != 0.0 or r_squared != 0.0:
+            if last_slope != 0.0 or r_squared != 0.0:
                 # RSI使用全量数据计算（60天）
                 rsi = self._get_rsi_for_symbol(symbol)
 
-                # 检查近4天RSI是否有超过90的（过滤超买后回调的股票）
-                recent_rsi_series = self._get_recent_rsi_series(symbol, days=4)
+                # 检查近3天RSI是否有超过90的（过滤超买后回调的股票）
+                recent_rsi_series = self._get_recent_rsi_series(symbol, days=3)
                 has_extreme_rsi = any(r > 90 for r in recent_rsi_series if r > 0)
 
                 if has_extreme_rsi:
-                    logger.debug(f"{symbol} 近4天有RSI超过90，跳过")
                     continue
 
                 result = {
                     "symbol": symbol,
                     "name": self.stock_names.get(symbol, "未知"),
-                    "slope": round(last_three_slope, 2),
+                    "slope": round(last_slope, 2),
                     "r_squared": round(r_squared, 2),
                     "rsi_6": rsi,
                 }
@@ -617,7 +623,7 @@ class Screener:
         top_10 = filtered_results[:10]
 
         print("\n" + "=" * 80)
-        print("均线斜率筛选结果（5日均线，R²>=75%分位，近4天RSI<=90，前10支）")
+        print("均线斜率筛选结果（10日均线，10日R²>=75%分位，5日斜率，近3天RSI<=90，前10支）")
         print("=" * 80)
 
         if not top_10:
