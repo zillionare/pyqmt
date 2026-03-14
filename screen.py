@@ -33,7 +33,9 @@ logger.remove()
 logger.add(sys.stdout, level="INFO")
 
 # 默认缓存路径
-DEFAULT_CACHE_PATH = "/tmp/screen.pq"
+SCREEN_DIR = Path.home() / "screen"
+SCREEN_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_CACHE_PATH = str(SCREEN_DIR / "screen.pq")
 
 
 def load_cached_data(cache_path: str = DEFAULT_CACHE_PATH) -> pl.DataFrame:
@@ -558,11 +560,14 @@ class Screener:
                 if 0 <= prev_return <= 0.01:
                     continue
 
-            is_yang, min_volume_after = check_consecutive_yang(symbol_df, t0_date)
-
-            # 计算放量后的最小成交量（无论是否连续阳线）
-            df_after = symbol_df.filter(pl.col("trade_date") > t0_date)
+            # 计算t0日之后的阳线天数和最小成交量
+            df_after = symbol_df.filter(pl.col("trade_date") > t0_date).sort("trade_date")
+            up_days_count = 0
             min_volume_after_all = df_after["volume"].min() if not df_after.is_empty() else 0.0
+
+            for row in df_after.iter_rows(named=True):
+                if row["close"] > row["open"]:
+                    up_days_count += 1
 
             # 过滤放量后成交量小于5的股票（单位：万手）
             if min_volume_after_all < 5:
@@ -571,8 +576,8 @@ class Screener:
             # RSI使用全量数据计算（默认70天以确保准确）
             rsi = self._get_rsi_for_symbol(symbol)
 
-            # 过滤最后一天RSI小于50的股票
-            if rsi < 50:
+            # 过滤最后一天RSI小于55的股票
+            if rsi < 55:
                 continue
 
             # 获取放量当天的换手率
@@ -583,13 +588,18 @@ class Screener:
             if turnover < 5:
                 continue
 
+            # 计算从放量日到今天的交易日数
+            all_dates = self.history_df['trade_date'].unique().sort()
+            trading_days_count = len([d for d in all_dates if d >= t0_date])
+
             result = {
                 "symbol": symbol,
                 "name": self.stock_names.get(symbol, "未知"),
                 "t0_date": t0_date.strftime("%Y-%m-%d") if hasattr(t0_date, 'strftime') else str(t0_date)[:10],
+                "trading_days": trading_days_count,
                 "volume_ratio": round(ratio, 2),
-                "up_days": len(symbol_df.filter(pl.col("trade_date") > t0_date)),
-                "turnover": round(turnover, 2),
+                "up_days": up_days_count,
+                "turnover": f"{turnover:.1f}%",
                 "rsi_6": rsi,
             }
 
@@ -613,15 +623,69 @@ class Screener:
                 "symbol": "代码",
                 "name": "名称",
                 "t0_date": "放量日",
-                "volume_ratio": "放量倍数",
-                "up_days": "上涨天数",
+                "trading_days": "距今",
+                "up_days": "收阳天数",
+                "volume_ratio": "量比",
                 "turnover": "换手率",
-                "rsi_6": "RSI(6)",
+                "rsi_6": "RSI",
             }
+            # 调整列顺序
+            column_order = ["代码", "名称", "放量日", "距今", "收阳天数", "量比", "换手率", "RSI"]
             df.columns = [headers.get(c, c) for c in df.columns]
+            df = df[column_order]
             print(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
 
-        print("=" * 80)
+            # 保存筛选结果到CSV文件
+            if not self.history_df.is_empty():
+                last_date = self.history_df['trade_date'].max()
+                # 准备CSV数据
+                df_csv = df.copy()
+                df_csv['命令'] = '放量'
+                # 设置索引为筛选日
+                if isinstance(last_date, datetime.date):
+                    index_date = last_date.strftime("%Y-%m-%d")
+                else:
+                    index_date = str(last_date)[:10]
+                df_csv['筛选日'] = index_date
+                df_csv = df_csv.set_index('筛选日')
+
+                # 保存到CSV (使用utf-8-sig以支持Excel打开)
+                result_file = SCREEN_DIR / "result.csv"
+                # 如果文件存在则读取并合并去重
+                if result_file.exists() and result_file.stat().st_size > 0:
+                    try:
+                        existing_df = pd.read_csv(result_file, encoding='utf-8-sig')
+                        # 合并数据
+                        combined_df = pd.concat([existing_df, df_csv.reset_index()], ignore_index=True)
+                        # 按筛选日和代码去重，保留最后出现的记录
+                        combined_df = combined_df.drop_duplicates(subset=['筛选日', '代码'], keep='last')
+                        # 重新设置索引
+                        combined_df = combined_df.set_index('筛选日')
+                        combined_df.to_csv(result_file, encoding='utf-8-sig')
+                    except Exception as e:
+                        logger.warning(f"读取或合并CSV失败，直接保存新数据: {e}")
+                        df_csv.to_csv(result_file, encoding='utf-8-sig')
+                else:
+                    df_csv.to_csv(result_file, encoding='utf-8-sig')
+
+                # 同时保存文本格式用于查看（与终端输出一致）
+                if isinstance(last_date, datetime.date):
+                    date_str = last_date.strftime("%y%m%d")
+                else:
+                    date_str = str(last_date)[:6]
+                txt_file = SCREEN_DIR / f"screen-volume-{date_str}.txt"
+                with open(txt_file, 'w', encoding='utf-8', newline='\r\n') as f:
+                    f.write(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
+
+                # 保存result.txt（覆盖模式，仅股票名，Windows换行）
+                result_txt_file = SCREEN_DIR / "result.txt"
+                with open(result_txt_file, 'w', encoding='utf-8', newline='\r\n') as f:
+                    for name in df['名称']:
+                        f.write(f"{name}\r\n")
+                logger.info(f"结果列表已保存到: {result_txt_file}")
+
+                print("=" * 80)
+                logger.info(f"文本结果已保存到: {txt_file}")
 
     def slope(self):
         """计算10日均线斜率和决定系数
@@ -721,6 +785,57 @@ class Screener:
             }
             df.columns = [headers.get(c, c) for c in df.columns]
             print(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
+
+            # 保存筛选结果到CSV文件
+            if not self.history_df.is_empty():
+                last_date = self.history_df['trade_date'].max()
+                # 准备CSV数据
+                df_csv = df.copy()
+                df_csv['命令'] = '均线'
+                # 设置索引为筛选日
+                if isinstance(last_date, datetime.date):
+                    index_date = last_date.strftime("%Y-%m-%d")
+                else:
+                    index_date = str(last_date)[:10]
+                df_csv['筛选日'] = index_date
+                df_csv = df_csv.set_index('筛选日')
+
+                # 保存到CSV (使用utf-8-sig以支持Excel打开)
+                result_file = SCREEN_DIR / "result.csv"
+                # 如果文件存在则读取并合并去重
+                if result_file.exists() and result_file.stat().st_size > 0:
+                    try:
+                        existing_df = pd.read_csv(result_file, encoding='utf-8-sig')
+                        # 合并数据
+                        combined_df = pd.concat([existing_df, df_csv.reset_index()], ignore_index=True)
+                        # 按筛选日和代码去重，保留最后出现的记录
+                        combined_df = combined_df.drop_duplicates(subset=['筛选日', '代码'], keep='last')
+                        # 重新设置索引
+                        combined_df = combined_df.set_index('筛选日')
+                        combined_df.to_csv(result_file, encoding='utf-8-sig')
+                    except Exception as e:
+                        logger.warning(f"读取或合并CSV失败，直接保存新数据: {e}")
+                        df_csv.to_csv(result_file, encoding='utf-8-sig')
+                else:
+                    df_csv.to_csv(result_file, encoding='utf-8-sig')
+                logger.info(f"筛选结果已保存到: {result_file}")
+
+                # 同时保存文本格式用于查看（与终端输出一致）
+                if isinstance(last_date, datetime.date):
+                    date_str = last_date.strftime("%y%m%d")
+                else:
+                    date_str = str(last_date)[:6]
+                txt_file = SCREEN_DIR / f"screen-slope-{date_str}.txt"
+                with open(txt_file, 'w', encoding='utf-8', newline='\r\n') as f:
+                    f.write(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt="simple"))
+                logger.info(f"文本结果已保存到: {txt_file}")
+
+                # 保存result.txt（覆盖模式，仅股票名，Windows换行）
+                result_txt_file = SCREEN_DIR / "result.txt"
+                with open(result_txt_file, 'w', encoding='utf-8', newline='\r\n') as f:
+                    for name in df['名称']:
+                        f.write(f"{name}\r\n")
+                logger.info(f"结果列表已保存到: {result_txt_file}")
 
         print("=" * 80)
 
