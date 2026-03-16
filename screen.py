@@ -18,7 +18,6 @@ import datetime
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import fire
 import numpy as np
@@ -225,7 +224,8 @@ def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 70) 
         if max_date < today:
             forward_dates = get_trading_dates(pro, max_date + datetime.timedelta(days=1), today)
             dates_to_fetch.extend(forward_dates)
-            logger.info(f"需要向后补齐 {len(forward_dates)} 个交易日")
+            logger.info(f"需要向后补齐 {len(forward_dates)} 个交易日: {forward_dates}")
+            logger.info(f"today={today}, max_date={max_date}")
 
         # 向前补齐：如果数据不足min_days天，往前补
         if current_days < min_days:
@@ -245,6 +245,8 @@ def update_cache(pro, cache_path: str = DEFAULT_CACHE_PATH, min_days: int = 70) 
         df = fetch_daily_data(pro, trade_date)
         if not df.is_empty():
             new_data.append(df)
+        else:
+            logger.warning(f"{trade_date} 没有数据返回")
         time.sleep(0.1)  # 避免请求过快
 
     if not new_data:
