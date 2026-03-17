@@ -600,22 +600,13 @@ class Screener:
             # 计算t0日之后的阳线天数和最小成交量
             df_after = symbol_df.filter(pl.col("trade_date") > t0_date).sort("trade_date")
             up_days_count = 0
-            min_volume_after_all = df_after["volume"].min() if not df_after.is_empty() else 0.0
 
             for row in df_after.iter_rows(named=True):
                 if row["close"] > row["open"]:
                     up_days_count += 1
 
-            if is_dig_target:
-                dig_info.append(f"放量后数据: 最小成交量={min_volume_after_all:.2f}万手, 收阳天数={up_days_count}")
 
-            # 过滤放量后成交量小于5的股票（单位：万手）
-            if min_volume_after_all < 5:
-                if is_dig_target:
-                    dig_info.append("❌ 被淘汰: 放量后最小成交量小于5万手")
-                continue
-            elif is_dig_target:
-                dig_info.append("✓ 通过: 放量后成交量>=5万手")
+
 
             # RSI使用全量数据计算（默认70天以确保准确）
             rsi = self._get_rsi_for_symbol(symbol)
@@ -623,13 +614,16 @@ class Screener:
             if is_dig_target:
                 dig_info.append(f"RSI-6={rsi:.2f}")
 
-            # 过滤最后一天RSI小于55的股票
-            if rsi < 55:
+            # 过滤最后一天RSI小于60的股票（RSI为0表示数据不足，不淘汰）
+            if 0 < rsi < 60:
                 if is_dig_target:
-                    dig_info.append("❌ 被淘汰: RSI-6 < 55")
+                    dig_info.append("❌ 被淘汰: RSI-6 < 60")
                 continue
             elif is_dig_target:
-                dig_info.append("✓ 通过: RSI-6 >= 55")
+                if rsi == 0:
+                    dig_info.append("✓ 通过: RSI数据不足，不淘汰")
+                else:
+                    dig_info.append("✓ 通过: RSI-6 >= 60")
 
             # 获取放量当天的换手率
             t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
