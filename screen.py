@@ -514,12 +514,16 @@ class Screener:
         # 返回最近days天的RSI
         return rsi_series[-days:] if len(rsi_series) >= days else rsi_series
 
-    def volume(self, log_level: str="INFO"):
+    def volume(self, log_level: str="INFO", dig: str=""):
         """筛选成交量放大且后续收阳线的股票
 
         筛选条件：
         - 存在某日成交量是之前5倍以上（t0日）
         - t0日之后都收阳线
+
+        Args:
+            log_level: 日志级别，默认INFO
+            dig: 追踪指定股票代码的淘汰原因，如"000062.SZ"
         """
         logger.info("开始成交量放大筛选...")
         self._load_data()
@@ -534,16 +538,30 @@ class Screener:
 
         logger.info(f"使用最近10天数据进行筛选: {recent_dates[0]} ~ {recent_dates[-1]}")
 
+        # 如果指定了dig，转换为大写并检查是否存在
+        dig_symbol = dig.upper() if dig else ""
+        dig_info = []
+
         results = []
         for symbol in recent_df["symbol"].unique():
             stock_name = self.stock_names.get(symbol, symbol)
+            is_dig_target = (symbol == dig_symbol)
+
+            if is_dig_target:
+                dig_info.append(f"\n{'='*80}")
+                dig_info.append(f"追踪股票: {symbol} ({stock_name})")
+                dig_info.append(f"{'='*80}")
 
             # 过滤9开头的股票（北交所等）
             if symbol.startswith('9'):
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: 9开头（北交所等）")
                 continue
 
             # 过滤ST股票
             if stock_name and ('ST' in stock_name or '*ST' in stock_name):
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: ST股票")
                 continue
 
             symbol_df = recent_df.filter(pl.col("symbol") == symbol)
@@ -551,16 +569,33 @@ class Screener:
             has_spike, t0_date, ratio = check_volume_spike(symbol_df, symbol)
 
             if not has_spike or t0_date is None:
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: 没有成交量放大（10天内没有成交量是之前5倍以上）")
+                    # 输出最近几天的成交量数据用于调试
+                    dig_info.append("\n最近10天成交量数据:")
+                    for row in symbol_df.sort("trade_date").iter_rows(named=True):
+                        dig_info.append(f"  {row['trade_date']}: volume={row['volume']:.2f}")
                 continue
 
-            # 过滤放量前一天是一字板的股票（涨跌幅在0%到1%之间）
+            if is_dig_target:
+                dig_info.append(f"✓ 通过: 发现放量日 {t0_date}, 放量倍数={ratio:.2f}")
+
+            # 过滤放量前一天是一字板的股票（涨幅>9%且价格波动<1%）
             df_before = symbol_df.filter(pl.col("trade_date") < t0_date)
             if not df_before.is_empty():
                 df_before = df_before.sort("trade_date", descending=True)
                 prev_row = df_before.row(0, named=True)
                 prev_return = prev_row["close"] / prev_row["open"] - 1 if prev_row["open"] > 0 else 0
-                if 0 <= prev_return <= 0.01:
+                price_change_pct = abs(prev_row["close"] - prev_row["open"]) / prev_row["open"] if prev_row["open"] > 0 else 0
+                is_yiziban = prev_return > 0.09 and price_change_pct < 0.01
+                if is_dig_target:
+                    dig_info.append(f"放量前一天 ({prev_row['trade_date']}): 涨幅={prev_return*100:.2f}%, 价格波动={price_change_pct*100:.2f}%")
+                if is_yiziban:
+                    if is_dig_target:
+                        dig_info.append("❌ 被淘汰: 放量前一天是一字板（涨幅>9%且价格波动<1%）")
                     continue
+                elif is_dig_target:
+                    dig_info.append("✓ 通过: 放量前一天不是一字板")
 
             # 计算t0日之后的阳线天数和最小成交量
             df_after = symbol_df.filter(pl.col("trade_date") > t0_date).sort("trade_date")
@@ -571,28 +606,53 @@ class Screener:
                 if row["close"] > row["open"]:
                     up_days_count += 1
 
+            if is_dig_target:
+                dig_info.append(f"放量后数据: 最小成交量={min_volume_after_all:.2f}万手, 收阳天数={up_days_count}")
+
             # 过滤放量后成交量小于5的股票（单位：万手）
             if min_volume_after_all < 5:
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: 放量后最小成交量小于5万手")
                 continue
+            elif is_dig_target:
+                dig_info.append("✓ 通过: 放量后成交量>=5万手")
 
             # RSI使用全量数据计算（默认70天以确保准确）
             rsi = self._get_rsi_for_symbol(symbol)
 
+            if is_dig_target:
+                dig_info.append(f"RSI-6={rsi:.2f}")
+
             # 过滤最后一天RSI小于55的股票
             if rsi < 55:
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: RSI-6 < 55")
                 continue
+            elif is_dig_target:
+                dig_info.append("✓ 通过: RSI-6 >= 55")
 
             # 获取放量当天的换手率
             t0_row = symbol_df.filter(pl.col("trade_date") == t0_date)
             turnover = t0_row["turnover"].to_list()[0] if not t0_row.is_empty() else 0.0
 
+            if is_dig_target:
+                dig_info.append(f"放量日换手率={turnover:.2f}%")
+
             # 过滤放量当天换手率不足5%的股票
             if turnover < 5:
+                if is_dig_target:
+                    dig_info.append("❌ 被淘汰: 放量日换手率 < 5%")
                 continue
+            elif is_dig_target:
+                dig_info.append("✓ 通过: 放量日换手率 >= 5%")
 
             # 计算从放量日到今天的交易日数
             all_dates = self.history_df['trade_date'].unique().sort()
             trading_days_count = len([d for d in all_dates if d >= t0_date])
+
+            if is_dig_target:
+                dig_info.append(f"✅ 最终入选: 距今{trading_days_count}个交易日")
+                dig_info.append(f"{'='*80}\n")
 
             result = {
                 "symbol": symbol,
@@ -606,6 +666,10 @@ class Screener:
             }
 
             results.append(result)
+
+        # 输出追踪信息
+        if dig_info:
+            print("\n".join(dig_info))
 
         print("\n" + "=" * 80)
         print("成交量放大筛选结果")
